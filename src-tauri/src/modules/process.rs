@@ -59,12 +59,34 @@ pub fn is_antigravity_running() -> bool {
 }
 
 #[cfg(target_os = "linux")]
-/// 获取当前进程及其所有子进程的 PID 集合
-fn get_self_and_children_pids(system: &sysinfo::System) -> std::collections::HashSet<u32> {
+/// 获取当前进程及其所有直系亲属（祖先 + 后代）的 PID 集合
+fn get_self_family_pids(system: &sysinfo::System) -> std::collections::HashSet<u32> {
     let current_pid = std::process::id();
-    let mut self_pids = std::collections::HashSet::new();
-    self_pids.insert(current_pid);
+    let mut family_pids = std::collections::HashSet::new();
+    family_pids.insert(current_pid);
 
+    // 1. 向上查找所有祖先 (Ancestors) - 防止杀掉启动器
+    let mut next_pid = current_pid;
+    // 防止死循环，设置最大深度 10
+    for _ in 0..10 {
+         let pid_val = sysinfo::Pid::from_u32(next_pid);
+         if let Some(process) = system.process(pid_val) {
+             if let Some(parent) = process.parent() {
+                 let parent_id = parent.as_u32();
+                 // 避免循环或重复
+                 if !family_pids.insert(parent_id) {
+                     break;
+                 }
+                 next_pid = parent_id;
+             } else {
+                 break;
+             }
+         } else {
+             break;
+         }
+    }
+
+    // 2. 向下查找所有后代 (Descendants)
     // 构建父子关系映射 (Parent -> Children)
     let mut adj: std::collections::HashMap<u32, Vec<u32>> = std::collections::HashMap::new();
     for (pid, process) in system.processes() {
@@ -80,14 +102,14 @@ fn get_self_and_children_pids(system: &sysinfo::System) -> std::collections::Has
     while let Some(pid) = queue.pop_front() {
         if let Some(children) = adj.get(&pid) {
             for &child in children {
-                if self_pids.insert(child) {
+                if family_pids.insert(child) {
                     queue.push_back(child);
                 }
             }
         }
     }
     
-    self_pids
+    family_pids
 }
 
 /// 获取所有 Antigravity 进程的 PID（包括主进程和Helper进程）
@@ -95,22 +117,25 @@ fn get_antigravity_pids() -> Vec<u32> {
     let mut system = System::new();
     system.refresh_processes(sysinfo::ProcessesToUpdate::All);
     
-    // Linux 端启用自身进程树排除，防止误杀
+    // Linux 端启用家族进程树排除
     #[cfg(target_os = "linux")]
-    let self_pids = get_self_and_children_pids(&system);
-    // #[cfg(target_os = "linux")]
-    // crate::modules::logger::log_info(&format!("排除自身进程树: {:?}", self_pids));
+    let family_pids = get_self_family_pids(&system);
 
     let mut pids = Vec::new();
     let current_pid = std::process::id();
     
     for (pid, process) in system.processes() {
         let pid_u32 = pid.as_u32();
+        let name = process.name().to_string_lossy().to_lowercase();
         
         #[cfg(target_os = "linux")]
         {
-            // 排除自身相关进程
-            if self_pids.contains(&pid_u32) {
+            // 1. 排除家族进程 (自身、子进程、父进程)
+            if family_pids.contains(&pid_u32) {
+                continue;
+            }
+            // 2. 额外保护：如果名字包含 "tools"，很有可能是管理器本身
+            if name.contains("tools") {
                 continue;
             }
         }
