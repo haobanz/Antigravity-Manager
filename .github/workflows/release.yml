@@ -13,12 +13,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: 'macos-latest' # ARM (Release 3 binaries: ARM, Intel, Universal from one runner type)
+          - platform: 'macos-latest'
+            args: '--target x86_64-apple-darwin'
+          - platform: 'macos-latest'
             args: '--target aarch64-apple-darwin'
           - platform: 'macos-latest'
             args: '--target universal-apple-darwin'
           - platform: 'ubuntu-22.04'
             args: ''
+          - platform: 'ubuntu-22.04'
+            args: '--target aarch64-unknown-linux-gnu'
+            useCross: true
           - platform: 'windows-latest'
             args: ''
 
@@ -60,3 +65,4 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+          useCross: ${{ matrix.useCross || false }}
