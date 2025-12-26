@@ -69,24 +69,38 @@ fn flatten_refs(map: &mut serde_json::Map<String, Value>, defs: &serde_json::Map
 fn clean_json_schema_recursive(value: &mut Value) {
     match value {
         Value::Object(map) => {
-            // 1. 收集并处理校验字段 (Soft-Remove: Move constraints to description)
-            let validation_fields = [
-                ("minLength", "minLen"),
-                ("maxLength", "maxLen"),
-                ("minimum", "min"),
-                ("maximum", "max"),
-                ("minItems", "minItems"),
-                ("maxItems", "maxItems"),
-                ("exclusiveMinimum", "exclMin"),
-                ("exclusiveMaximum", "exclMax"),
-                ("multipleOf", "multipleOf"),
-                ("pattern", "pattern"),
-            ];
-
+            // 1. 收集并处理校验字段 (Soft-Remove with Type Check & Unwrapping)
             let mut constraints = Vec::new();
-            for (field, label) in validation_fields {
+            
+            // String 类型校验 (pattern): 必须是 String，否则可能是属性定义
+            let string_validations = [("pattern", "pattern")];
+            for (field, label) in string_validations {
                 if let Some(val) = map.remove(field) {
-                    constraints.push(format!("{}: {}", label, val));
+                    if let Value::String(s) = val {
+                        constraints.push(format!("{}: {}", label, s));
+                    } else {
+                        // 不是 String (例如是 Object 类型的属性定义)，放回去
+                        map.insert(field.to_string(), val);
+                    }
+                }
+            }
+
+            // Number 类型校验
+            let number_validations = [
+                ("minLength", "minLen"), ("maxLength", "maxLen"),
+                ("minimum", "min"), ("maximum", "max"),
+                ("minItems", "minItems"), ("maxItems", "maxItems"),
+                ("exclusiveMinimum", "exclMin"), ("exclusiveMaximum", "exclMax"),
+                ("multipleOf", "multipleOf"),
+            ];
+            for (field, label) in number_validations {
+                if let Some(val) = map.remove(field) {
+                    if val.is_number() {
+                        constraints.push(format!("{}: {}", label, val));
+                    } else {
+                        // 不是 Number，放回去
+                        map.insert(field.to_string(), val);
+                    }
                 }
             }
 
@@ -113,18 +127,25 @@ fn clean_json_schema_recursive(value: &mut Value) {
                 map.remove(field);
             }
 
-            // 4. 处理 type 字段 (Gemini 要求小写，且支持联合类型)
+            // 4. 处理 type 字段 (Gemini Protobuf 不支持数组类型，强制降级)
             if let Some(type_val) = map.get_mut("type") {
                 match type_val {
                     Value::String(s) => {
                         *type_val = Value::String(s.to_lowercase());
                     }
                     Value::Array(arr) => {
+                        // Handle ["string", "null"] -> select first non-null string
+                        // 任何数组类型都必须降级为单一类型
+                        let mut selected_type = "string".to_string(); 
                         for item in arr {
                             if let Value::String(s) = item {
-                                *item = Value::String(s.to_lowercase());
+                                if s != "null" {
+                                    selected_type = s.to_lowercase();
+                                    break;
+                                }
                             }
                         }
+                        *type_val = Value::String(selected_type);
                     }
                     _ => {}
                 }
@@ -160,6 +181,13 @@ mod tests {
                     "minLength": 1,
                     "format": "city"
                 },
+                // 模拟属性名冲突：pattern 是一个 Object 属性，不应被移除
+                "pattern": {
+                    "type": "object",
+                    "properties": {
+                        "regex": { "type": "string", "pattern": "^[a-z]+$" }
+                    }
+                },
                 "unit": {
                     "type": ["string", "null"],
                     "default": "celsius"
@@ -176,14 +204,34 @@ mod tests {
 
         // 2. 验证标准字段被转换并移动到描述 (Advanced Soft-Remove)
         assert!(schema["properties"]["location"].get("minLength").is_none());
-        assert!(schema["properties"]["location"].get("format").is_none());
         assert!(schema["properties"]["location"]["description"].as_str().unwrap().contains("minLen: 1"));
 
-        // 3. 验证联合类型保持数组形式且小写
-        assert_eq!(schema["properties"]["unit"]["type"], json!(["string", "null"]));
+        // 3. 验证名为 "pattern" 的属性未被误删
+        assert!(schema["properties"].get("pattern").is_some());
+        assert_eq!(schema["properties"]["pattern"]["type"], "object");
+
+        // 4. 验证内部的 pattern 校验字段被正确移除并转为描述
+        assert!(schema["properties"]["pattern"]["properties"]["regex"].get("pattern").is_none());
+        assert!(schema["properties"]["pattern"]["properties"]["regex"]["description"].as_str().unwrap().contains("pattern: ^[a-z]+$"));
+
+        // 5. 验证联合类型被降级为单一类型 (Protobuf 兼容性)
+        assert_eq!(schema["properties"]["unit"]["type"], "string");
         
-        // 4. 验证元数据字段被移除
+        // 6. 验证元数据字段被移除
         assert!(schema.get("$schema").is_none());
+    }
+
+    #[test]
+    fn test_type_fallback() {
+        // Test ["string", "null"] -> "string"
+        let mut s1 = json!({"type": ["string", "null"]});
+        clean_json_schema(&mut s1);
+        assert_eq!(s1["type"], "string");
+
+        // Test ["integer", "null"] -> "integer" (and lowercase check if needed, though usually integer)
+        let mut s2 = json!({"type": ["integer", "null"]});
+        clean_json_schema(&mut s2);
+        assert_eq!(s2["type"], "integer");
     }
 
     #[test]
