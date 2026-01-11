@@ -506,6 +506,7 @@ pub async fn handle_messages(
 
     let mut last_error = String::new();
     let mut retried_without_thinking = false;
+    let mut last_email: Option<String> = None;
     
     for attempt in 0..max_attempts {
         // 2. 模型路由解析
@@ -548,6 +549,7 @@ pub async fn handle_messages(
             }
         };
 
+        last_email = Some(email.clone());
         info!("✓ Using account: {} (type: {})", email, config.request_type);
         
         
@@ -857,13 +859,23 @@ pub async fn handle_messages(
         }
     }
     
-    (StatusCode::TOO_MANY_REQUESTS, Json(json!({
-        "type": "error",
-        "error": {
-            "type": "overloaded_error",
-            "message": format!("All {} attempts failed. Last error: {}", max_attempts, last_error)
-        }
-    }))).into_response()
+    if let Some(email) = last_email {
+        (StatusCode::TOO_MANY_REQUESTS, [("X-Account-Email", email)], Json(json!({
+            "type": "error",
+            "error": {
+                "type": "overloaded_error",
+                "message": format!("All {} attempts failed. Last error: {}", max_attempts, last_error)
+            }
+        }))).into_response()
+    } else {
+        (StatusCode::TOO_MANY_REQUESTS, Json(json!({
+            "type": "error",
+            "error": {
+                "type": "overloaded_error",
+                "message": format!("All {} attempts failed. Last error: {}", max_attempts, last_error)
+            }
+        }))).into_response()
+    }
 }
 
 /// 列出可用模型
