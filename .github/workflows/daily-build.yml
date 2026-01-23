@@ -129,19 +129,33 @@ jobs:
               fi
             done
           elif [ "${{ runner.os }}" = "Windows" ]; then
-            # Windows 平台 - 直接复制所有文件
-            find src-tauri/target -name "*.msi" -type f | while read file; do
+            # Windows 平台 - 只复制最终的安装包和主程序
+            # 复制 MSI 安装包
+            find src-tauri/target -path "*/bundle/msi/*.msi" -type f | head -1 | while read file; do
               if [ -f "$file" ]; then
                 cp "$file" "build-artifacts/Antigravity-Tools-$DATE-${{ matrix.platform_name }}.msi"
                 echo "✅ Windows MSI copied"
               fi
             done
 
-            find src-tauri/target -name "*.exe" -type f | while read file; do
+            # 只复制主程序 exe（在 release 目录下，排除 bundle 和 build 临时文件）
+            find src-tauri/target/release -maxdepth 1 -name "*.exe" -type f | while read file; do
+              if [ -f "$file" ]; then
+                filename=$(basename "$file")
+                # 排除临时编译文件
+                if [[ ! "$filename" =~ ^build.*script.* ]]; then
+                  cp "$file" "build-artifacts/Antigravity-Tools-$DATE-${{ matrix.platform_name }}-${filename}"
+                  echo "✅ Windows EXE copied: $filename"
+                fi
+              fi
+            done
+
+            # 复制 NSIS 安装包（如果有）
+            find src-tauri/target -path "*/bundle/nsis/*setup*.exe" -type f | head -1 | while read file; do
               if [ -f "$file" ]; then
                 filename=$(basename "$file")
                 cp "$file" "build-artifacts/Antigravity-Tools-$DATE-${{ matrix.platform_name }}-${filename}"
-                echo "✅ Windows EXE copied: $filename"
+                echo "✅ Windows Setup copied: $filename"
               fi
             done
           else
