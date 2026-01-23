@@ -220,6 +220,11 @@ print(response.choices[0].message.content)
             -   **Compatibility**: Introduced minimum signature length checks and a trust-on-length strategy for unknown signatures, significantly improving the stability of JSON tool calls.
         -   **[i18n] Vietnamese Translation Optimization (PR #1017)**:
             -   **Refinement**: Optimized Vietnamese translations for the About page and other UI elements for better clarity and conciseness.
+        -   **[i18n] Turkish Tray Translation Enhancement (PR #1023)**:
+            -   **Optimization**: Added full Turkish translation support for the system tray menu, improving the experience for Turkish-speaking users.
+        -   **[Enhancement] Multi-language Support & I18n Settings (PR #1029)**:
+            -   **New Language Support**: Added more comprehensive support for Portuguese, Japanese, Vietnamese, Turkish, Russian, and more.
+            -   **I18n Settings Panel**: Added a language selector in the Settings page, supporting instant switching of the application's display language.
     *   **v3.3.49 (2026-01-22)**:
         -   **[Core Fix] Thinking Interruption & 0-Token Defense (Fix Thinking Interruption)**:
             -   **Issue**: Addressed an issue where Gemini models would unexpectedly terminate the stream after outputting "Thinking" content, causing Claude clients to receive 0-token responses and deadlock with errors.
