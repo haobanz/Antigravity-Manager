@@ -43,7 +43,7 @@
   "plugins": {
     "updater": {
       "active": true,
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDZGQzM1RkNFQjNCMDg2NUYKUldSZmhyQ3p6bC9EYitnekt4ci9nMWhBTS9rVHRqTHdmcDhXRFBKWUF4djRVNVRteWVRQ2k3ZkkK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IENBQzM5NzMzMDIxQTdFQjcKUldTM2Zob0NNNWZEeWdEZXpIYW5VRmIrcm5VTzB4YUNTK0k5a1dubFlOTFBLTjB6aUpwMG5weUkK",
       "endpoints": [
         "https://github.com/haobanz/Antigravity-Manager/releases/latest/download/updater.json"
       ],
