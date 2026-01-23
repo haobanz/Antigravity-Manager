@@ -511,7 +511,9 @@
                 "enable": "Habilitar Proxy Upstream",
                 "url": "URL do Proxy",
                 "url_placeholder": "ex: http://127.0.0.1:7890 ou socks5://127.0.0.1:7890",
-                "tip": "Suporta HTTP, HTTPS e SOCKS5."
+                "tip": "Suporta HTTP, HTTPS e SOCKS5.",
+                "validation_error": "URL do proxy é obrigatório quando o proxy upstream está habilitado",
+                "restart_hint": "Configurações de proxy salvas. Reinicie o aplicativo para aplicar as alterações."
             },
             "scheduling": {
                 "title": "Rotação de Conta e Agendamento",
@@ -538,7 +540,13 @@
                 "title": "Configurações Experimentais",
                 "title_tooltip": "Recursos exploratórios que podem ser ajustados ou removidos em versões futuras.",
                 "enable_usage_scaling": "Ativar Escalonamento de Uso",
-                "enable_usage_scaling_tooltip": "Para protocolo Claude. Ativa escalonamento agressivo quando a entrada total excede 30k tokens para evitar compressão frequente no lado do cliente em grandes contextos. Nota: O uso relatado não refletirá o faturamento real após ativar."
+                "enable_usage_scaling_tooltip": "Para protocolo Claude. Ativa escalonamento agressivo quando a entrada total excede 30k tokens para evitar compressão frequente no lado do cliente em grandes contextos. Nota: O uso relatado não refletirá o faturamento real após ativar.",
+                "context_compression_threshold_l1": "Limiar de Compressão L1 (Aparagem de Ferramentas)",
+                "context_compression_threshold_l1_tooltip": "Apara registros antigos de chamadas de ferramentas para economizar espaço. Recomendado: 0.4 (40%)",
+                "context_compression_threshold_l2": "Limiar de Compressão L2 (Compressão de Pensamento)",
+                "context_compression_threshold_l2_tooltip": "Comprime blocos de pensamento iniciais mantendo as assinaturas. Recomendado: 0.55 (55%)",
+                "context_compression_threshold_l3": "Limiar de Compressão L3 (Pivô de Resumo)",
+                "context_compression_threshold_l3_tooltip": "Gera um resumo de estado XML e pivota para uma nova sessão. Recomendado: 0.7 (70%)"
             },
             "cloudflared": {
                 "title": "Acesso Público (Cloudflared)",
@@ -651,6 +659,10 @@
             "title": "Roteador de Modelos",
             "subtitle": "Rotear modelos por série ou adicionar mapeamentos exatos personalizados.\nNota: Modelos de passagem nativa Claude (ex: claude-opus-4-5-thinking) ignoram grupos de série por padrão. Use \"Roteamento Personalizado Especialista\" para substituir.",
             "subtitle_simple": "Personalizar roteamento de modelos com curingas ou mapeamentos exatos",
+            "background_task_title": "Background Task Model",
+            "background_task_desc": "Model used for Claude CLI background tasks like title generation, summary, etc. (Default: gemini-2.5-flash)",
+            "use_default": "Use System Default",
+            "current_model": "Current Model",
             "apply_presets": "Aplicar Predefinições",
             "presets_applied": "Predefinições aplicadas com sucesso",
             "custom_mappings": "Mapeamentos Personalizados",
@@ -776,7 +788,9 @@
             "gemini": "Gemini",
             "claude": "Claude",
             "images": "Imagens",
-            "reset": "Redefinir"
+            "reset": "Redefinir",
+            "by_account": "Filtrar por conta",
+            "all_accounts": "Todas as Contas"
         },
         "table": {
             "status": "Status",

@@ -481,7 +481,9 @@
                 "enable": "Upstream Proxy'yi Etkinleştir",
                 "url": "Proxy URL'si",
                 "url_placeholder": "örn. http://127.0.0.1:7890 veya socks5://127.0.0.1:7890",
-                "tip": "HTTP, HTTPS ve SOCKS5 destekler."
+                "tip": "HTTP, HTTPS ve SOCKS5 destekler.",
+                "validation_error": "Upstream proxy etkinleştirildiğinde proxy URL'si zorunludur",
+                "restart_hint": "Proxy ayarları kaydedildi. Değişiklikleri uygulamak için uygulamayı yeniden başlatın."
             },
             "scheduling": {
                 "title": "Hesap Rotasyonu ve Zamanlama",
@@ -513,7 +515,13 @@
                 "title": "Deneysel Ayarlar",
                 "title_tooltip": "Gelecek sürümlerde ayarlanabilecek veya kaldırılabilecek keşifsel özellikler.",
                 "enable_usage_scaling": "Kullanım Ölçeklendirmeyi Etkinleştir",
-                "enable_usage_scaling_tooltip": "Claude protokolü için. Toplam giriş 30 bin jetonu aştığında, büyük bağlamlarda sık istemci tarafı sıkıştırmayı önlemek için agresif ölçeklendirmeyi etkinleştirir. Not: Etkinleştirildikten sonra bildirilen kullanım gerçek faturalandırmayı yansıtmayacaktır."
+                "enable_usage_scaling_tooltip": "Claude protokolü için. Toplam giriş 30 bin jetonu aştığında, büyük bağlamlarda sık istemci tarafı sıkıştırmayı önlemek için agresif ölçeklendirmeyi etkinleştirir. Not: Etkinleştirildikten sonra bildirilen kullanım gerçek faturalandırmayı yansıtmayacaktır.",
+                "context_compression_threshold_l1": "L1 Sıkıştırma Eşiği (Araç Kırpma)",
+                "context_compression_threshold_l1_tooltip": "Yer kazanmak için eski araç çağrı kayıtlarını kırpar. Önerilen: 0.4 (40%)",
+                "context_compression_threshold_l2": "L2 Sıkıştırma Eşiği (Düşünce Sıkıştırma)",
+                "context_compression_threshold_l2_tooltip": "İmzaları korurken erken düşünce bloklarını sıkıştırır. Önerilen: 0.55 (55%)",
+                "context_compression_threshold_l3": "L3 Sıkıştırma Eşiği (Özet Pivotu)",
+                "context_compression_threshold_l3_tooltip": "XML durum özeti oluşturur ve taze bir oturuma geçer. Önerilen: 0.7 (70%)"
             },
             "cloudflared": {
                 "title": "Genel Erişim (Cloudflared)",
@@ -626,6 +634,10 @@
             "title": "Model Yönlendirici",
             "subtitle": "Modelleri serilere göre yönlendirin veya özel tam eşlemeler ekleyin.\nNot: Yerel Claude geçiş modelleri (örn. claude-opus-4-5-thinking) varsayılan olarak seri gruplarını atlar. Geçersiz kılmak için \"Uzman Özel Yönlendirme\" kullanın.",
             "subtitle_simple": "Joker karakterlerle veya tam eşlemelerle model yönlendirmeyi özelleştirin",
+            "background_task_title": "Background Task Model",
+            "background_task_desc": "Model used for Claude CLI background tasks like title generation, summary, etc. (Default: gemini-2.5-flash)",
+            "use_default": "Use System Default",
+            "current_model": "Current Model",
             "apply_presets": "Ön Ayarları Uygula",
             "presets_applied": "Ön ayarlar başarıyla uygulandı",
             "custom_mappings": "Özel Eşlemeler",
@@ -751,7 +763,9 @@
             "gemini": "Gemini",
             "claude": "Claude",
             "images": "Görseller",
-            "reset": "Sıfırla"
+            "reset": "Sıfırla",
+            "by_account": "Hesaba göre filtrele",
+            "all_accounts": "Tüm Hesaplar"
         },
         "table": {
             "status": "Durum",
