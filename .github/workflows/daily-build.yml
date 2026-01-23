@@ -156,7 +156,7 @@ jobs:
   create-release:
     needs: build
     runs-on: ubuntu-latest
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    # 所有触发方式都创建 Release
     permissions:
       contents: write
 
