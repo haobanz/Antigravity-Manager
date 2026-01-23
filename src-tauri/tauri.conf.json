@@ -42,11 +42,7 @@
   },
   "plugins": {
     "updater": {
-      "active": true,
-      "endpoints": [
-        "https://github.com/haobanz/Antigravity-Manager/releases/latest/download/updater.json"
-      ],
-      "dialog": true
+      "active": false
     },
     "process": null,
     "fs": null,
