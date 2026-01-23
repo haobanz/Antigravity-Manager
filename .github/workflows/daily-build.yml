@@ -99,41 +99,58 @@ jobs:
           mkdir -p build-artifacts
           DATE=$(date +%Y%m%d-%H%M%S)
 
-          # 根据不同平台收集构建产物
+          # 根据不同平台收集构建产物，直接复制所有文件
           if [ "${{ runner.os }}" = "macOS" ]; then
-            # macOS 平台
-            for ext in app dmg; do
-              find src-tauri/target -name "*.$ext" -type f -o -name "*.$ext" -type d | while read file; do
-                if [ -e "$file" ]; then
-                  if [ "$ext" = "app" ]; then
-                    # 将 .app 打包为 zip
-                    APP_DIR=$(dirname "$file")
-                    APP_NAME=$(basename "$file")
-                    cd "$APP_DIR"
-                    ZIP_NAME="Antigravity-Tools-$DATE-${{ matrix.platform_name }}.zip"
-                    ditto -c -k --sequesterRsrc --keepParent "$APP_NAME" "$ZIP_NAME"
-                    mv "$ZIP_NAME" "$GITHUB_WORKSPACE/build-artifacts/"
-                    cd "$GITHUB_WORKSPACE"
-                  else
-                    cp "$file" "build-artifacts/Antigravity-Tools-$DATE-${{ matrix.platform_name }}.$ext"
-                  fi
-                fi
-              done
+            # macOS 平台 - 复制所有格式
+            # 复制 DMG
+            find src-tauri/target -name "*.dmg" -type f | while read file; do
+              if [ -f "$file" ]; then
+                cp "$file" "build-artifacts/Antigravity-Tools-$DATE-${{ matrix.platform_name }}.dmg"
+                echo "✅ macOS DMG copied"
+              fi
+            done
+
+            # 复制 .app.tar.gz 更新包
+            find src-tauri/target -name "*.app.tar.gz" -type f | while read file; do
+              if [ -f "$file" ]; then
+                cp "$file" "build-artifacts/Antigravity-Tools-$DATE-${{ matrix.platform_name }}.app.tar.gz"
+                echo "✅ macOS updater copied"
+              fi
+            done
+
+            # 为 .app 创建 zip（macOS 标准格式）
+            find src-tauri/target -name "*.app" -type d | head -1 | while read file; do
+              if [ -d "$file" ]; then
+                APP_DIR=$(dirname "$file")
+                APP_NAME=$(basename "$file")
+                cd "$APP_DIR"
+                ditto -c -k --sequesterRsrc --keepParent "$APP_NAME" "$GITHUB_WORKSPACE/build-artifacts/Antigravity-Tools-$DATE-${{ matrix.platform_name }}.zip"
+                echo "✅ macOS app bundle copied"
+              fi
             done
           elif [ "${{ runner.os }}" = "Windows" ]; then
-            # Windows 平台
-            find src-tauri/target -name "*.msi" -o -name "*.exe" | while read file; do
-              if [ -e "$file" ]; then
-                ext="${file##*.}"
-                cp "$file" "build-artifacts/Antigravity-Tools-$DATE-${{ matrix.platform_name }}.$ext"
+            # Windows 平台 - 直接复制所有文件
+            find src-tauri/target -name "*.msi" -type f | while read file; do
+              if [ -f "$file" ]; then
+                cp "$file" "build-artifacts/Antigravity-Tools-$DATE-${{ matrix.platform_name }}.msi"
+                echo "✅ Windows MSI copied"
+              fi
+            done
+
+            find src-tauri/target -name "*.exe" -type f | while read file; do
+              if [ -f "$file" ]; then
+                filename=$(basename "$file")
+                cp "$file" "build-artifacts/Antigravity-Tools-$DATE-${{ matrix.platform_name }}-${filename}"
+                echo "✅ Windows EXE copied: $filename"
               fi
             done
           else
-            # Linux 平台
+            # Linux 平台 - 直接复制所有格式
             for ext in AppImage deb rpm; do
-              find src-tauri/target -name "*.$ext" | while read file; do
-                if [ -e "$file" ]; then
+              find src-tauri/target -name "*.$ext" -type f | while read file; do
+                if [ -f "$file" ]; then
                   cp "$file" "build-artifacts/Antigravity-Tools-$DATE-${{ matrix.platform_name }}.$ext"
+                  echo "✅ Linux $ext copied"
                 fi
               done
             done
