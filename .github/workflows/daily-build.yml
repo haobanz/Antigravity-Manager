@@ -1,0 +1,229 @@
+name: Daily Build
+
+on:
+  schedule:
+    # 每天 UTC 4:00 (北京时间 12:00) 自动编译
+    - cron: '0 4 * * *'
+  workflow_dispatch:  # 允许手动触发
+  push:
+    branches:
+      - main  # 当 main 分支有更新时也触发编译
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS (aarch64)
+          - platform: "macos-latest"
+            target: "aarch64-apple-darwin"
+            platform_name: "macOS-ARM64"
+          # macOS (x86_64)
+          - platform: "macos-latest"
+            target: "x86_64-apple-darwin"
+            platform_name: "macOS-x64"
+          # macOS (universal)
+          - platform: "macos-latest"
+            target: "universal-apple-darwin"
+            platform_name: "macOS-Universal"
+          # Linux x64
+          - platform: "ubuntu-22.04"
+            target: ""
+            platform_name: "Linux-x64"
+          # Linux ARM64
+          - platform: "ubuntu-24.04-arm"
+            target: ""
+            platform_name: "Linux-ARM64"
+          # Windows x64
+          - platform: "windows-latest"
+            target: "x86_64-pc-windows-msvc"
+            platform_name: "Windows-x64"
+          # Windows ARM64
+          - platform: "windows-latest"
+            target: "aarch64-pc-windows-msvc"
+            platform_name: "Windows-ARM64"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies (Linux)
+        if: startsWith(matrix.platform, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf pkg-config libsoup-3.0-dev javascriptcoregtk-4.1 libjavascriptcoregtk-4.1-dev
+          sudo apt-get install -y libnm-dev xdg-utils
+
+      - name: Rust setup
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || matrix.target }}
+
+      - name: Node.js setup
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install frontend dependencies
+        run: npm install
+
+      - name: Build the app
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [ "${{ matrix.platform }}" = "macos-latest" ]; then
+            if [ "${{ matrix.target }}" = "universal-apple-darwin" ]; then
+              npm run tauri build -- --target universal-apple-darwin
+            else
+              npm run tauri build -- --target ${{ matrix.target }}
+            fi
+          elif [ "${{ matrix.platform }}" = "windows-latest" ]; then
+            if [ "${{ matrix.target }}" = "aarch64-pc-windows-msvc" ]; then
+              npm run tauri build -- --target aarch64-pc-windows-msvc
+            else
+              npm run tauri build
+            fi
+          else
+            npm run tauri build
+          fi
+        shell: bash
+
+      - name: Prepare Build Artifacts
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p build-artifacts
+          DATE=$(date +%Y%m%d-%H%M%S)
+
+          # 根据不同平台收集构建产物，直接复制所有文件
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            # macOS 平台 - 复制所有格式
+            # 复制 DMG
+            find src-tauri/target -name "*.dmg" -type f | while read file; do
+              if [ -f "$file" ]; then
+                cp "$file" "build-artifacts/Antigravity-Tools-$DATE-${{ matrix.platform_name }}.dmg"
+                echo "✅ macOS DMG copied"
+              fi
+            done
+
+            # 复制 .app.tar.gz 更新包
+            find src-tauri/target -name "*.app.tar.gz" -type f | while read file; do
+              if [ -f "$file" ]; then
+                cp "$file" "build-artifacts/Antigravity-Tools-$DATE-${{ matrix.platform_name }}.app.tar.gz"
+                echo "✅ macOS updater copied"
+              fi
+            done
+
+            # 为 .app 创建 zip（macOS 标准格式）
+            find src-tauri/target -name "*.app" -type d | head -1 | while read file; do
+              if [ -d "$file" ]; then
+                APP_DIR=$(dirname "$file")
+                APP_NAME=$(basename "$file")
+                cd "$APP_DIR"
+                ditto -c -k --sequesterRsrc --keepParent "$APP_NAME" "$GITHUB_WORKSPACE/build-artifacts/Antigravity-Tools-$DATE-${{ matrix.platform_name }}.zip"
+                echo "✅ macOS app bundle copied"
+              fi
+            done
+          elif [ "${{ runner.os }}" = "Windows" ]; then
+            # Windows 平台 - 只复制最终的安装包和主程序
+            # 复制 MSI 安装包
+            find src-tauri/target -path "*/bundle/msi/*.msi" -type f | head -1 | while read file; do
+              if [ -f "$file" ]; then
+                cp "$file" "build-artifacts/Antigravity-Tools-$DATE-${{ matrix.platform_name }}.msi"
+                echo "✅ Windows MSI copied"
+              fi
+            done
+
+            # 只复制主程序 exe（在 release 目录下，排除 bundle 和 build 临时文件）
+            find src-tauri/target/release -maxdepth 1 -name "*.exe" -type f | while read file; do
+              if [ -f "$file" ]; then
+                filename=$(basename "$file")
+                # 排除临时编译文件
+                if [[ ! "$filename" =~ ^build.*script.* ]]; then
+                  cp "$file" "build-artifacts/Antigravity-Tools-$DATE-${{ matrix.platform_name }}-${filename}"
+                  echo "✅ Windows EXE copied: $filename"
+                fi
+              fi
+            done
+
+            # 复制 NSIS 安装包（如果有）
+            find src-tauri/target -path "*/bundle/nsis/*setup*.exe" -type f | head -1 | while read file; do
+              if [ -f "$file" ]; then
+                filename=$(basename "$file")
+                cp "$file" "build-artifacts/Antigravity-Tools-$DATE-${{ matrix.platform_name }}-${filename}"
+                echo "✅ Windows Setup copied: $filename"
+              fi
+            done
+          else
+            # Linux 平台 - 直接复制所有格式
+            for ext in AppImage deb rpm; do
+              find src-tauri/target -name "*.$ext" -type f | while read file; do
+                if [ -f "$file" ]; then
+                  cp "$file" "build-artifacts/Antigravity-Tools-$DATE-${{ matrix.platform_name }}.$ext"
+                  echo "✅ Linux $ext copied"
+                fi
+              done
+            done
+          fi
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.platform_name }}-${{ github.run_number }}
+          path: build-artifacts/*
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: List artifacts
+        shell: bash
+        run: |
+          echo "Build artifacts:"
+          ls -lah build-artifacts/ || echo "No artifacts found"
+
+  create-release:
+    needs: build
+    runs-on: ubuntu-latest
+    # 所有触发方式都创建 Release
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-artifacts
+
+      - name: Install GitHub CLI
+        run: |
+          type -p curl >/dev/null && sudo apt-get update && sudo apt-get install -y gh || true
+
+      - name: Create Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          DATE=$(date +%Y%m%d-%H%M%S)
+          TAG="daily-$DATE"
+
+          gh release create "$TAG" \
+            --repo "${{ github.repository }}" \
+            --title "Daily Build $DATE" \
+            --notes "自动编译版本 - $DATE
+
+          此版本包含所有平台的编译产物，包括：
+          - Windows x64 和 ARM64
+          - macOS Universal/ARM64/x64
+          - Linux x64 和 ARM64 (AppImage, Deb, RPM)
+
+          **注意**: 这是自动编译版本，可能不稳定。生产环境请使用正式发布版本。" \
+            --prerelease \
+            all-artifacts/**/*
