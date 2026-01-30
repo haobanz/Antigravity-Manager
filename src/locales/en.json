@@ -553,7 +553,18 @@
                 "max_wait": "Max Wait (sec)",
                 "max_wait_tooltip": "Only used in 'Cache First' mode: wait instead of switching if the rate limit reset time is below this value.",
                 "clear_bindings": "Clear Session Bindings",
-                "clear_bindings_tooltip": "Hard reset all session-account bindings, forcing accounts to be re-assigned on next request."
+                "clear_bindings_tooltip": "Hard reset all session-account bindings, forcing accounts to be re-assigned on next request.",
+                "clear_rate_limits": "Clear Rate Limit Records",
+                "clear_rate_limits_tooltip": "Immediately clear local rate limit records for all accounts, forcing next requests to try upstream directly."
+            },
+            "circuit_breaker": {
+                "title": "Adaptive Circuit Breaker",
+                "tooltip": "Automatically increases lockout duration for accounts that repeatedly fail with quota exhaustion. This prevents wasting API calls on dead accounts while allowing transient errors to recover quickly.",
+                "backoff_levels": "Backoff Levels (Seconds)",
+                "input_placeholder": "Enter backoff durations in seconds, separated by commas",
+                "level": "Lv {{level}}",
+                "invalid_format": "Invalid format. Use comma separated numbers (e.g. 60, 300)",
+                "clear_records": "Clear All Rate Limit Records"
             },
             "experimental": {
                 "title": "Experimental Settings",
@@ -632,7 +643,9 @@
             "regenerate_key_title": "Regenerate API Key",
             "regenerate_key_msg": "Are you sure you want to regenerate the API Key? The old key will be invalidated immediately.",
             "clear_bindings_title": "Clear Session Bindings",
-            "clear_bindings_msg": "Are you sure you want to clear all session-account bindings?"
+            "clear_bindings_msg": "Are you sure you want to clear all session-account bindings?",
+            "clear_rate_limits_title": "Clear Rate Limit Records",
+            "clear_rate_limits_confirm": "Are you sure you want to clear all local rate limit records?"
         },
         "model": {
             "flash": "Fast Response",

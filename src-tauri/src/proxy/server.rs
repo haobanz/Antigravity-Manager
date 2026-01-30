@@ -33,12 +33,14 @@ pub struct AppState {
     pub zai_vision_mcp: Arc<crate::proxy::zai_vision_mcp::ZaiVisionMcpState>,
     pub monitor: Arc<crate::proxy::monitor::ProxyMonitor>,
     pub experimental: Arc<RwLock<crate::proxy::config::ExperimentalConfig>>,
+    pub debug_logging: Arc<RwLock<crate::proxy::config::DebugLoggingConfig>>,
     pub switching: Arc<RwLock<bool>>, // [NEW] 账号切换状态，用于防止并发切换
     pub integration: crate::modules::integration::SystemManager, // [NEW] 系统集成层实现
     pub account_service: Arc<crate::modules::account_service::AccountService>, // [NEW] 账号管理服务层
     pub security: Arc<RwLock<crate::proxy::ProxySecurityConfig>>, // [NEW] 安全配置状态
     pub cloudflared_state: Arc<crate::commands::cloudflared::CloudflaredState>, // [NEW] Cloudflared 插件状态
     pub is_running: Arc<RwLock<bool>>, // [NEW] 运行状态标识
+    pub port: u16, // [NEW] 本地监听端口 (v4.0.8 修复)
 }
 
 // 为 AppState 实现 FromRef，以便中间件提取 security 状态
@@ -129,6 +131,7 @@ pub struct AxumServer {
     security_state: Arc<RwLock<crate::proxy::ProxySecurityConfig>>,
     zai_state: Arc<RwLock<crate::proxy::ZaiConfig>>,
     experimental: Arc<RwLock<crate::proxy::config::ExperimentalConfig>>,
+    debug_logging: Arc<RwLock<crate::proxy::config::DebugLoggingConfig>>,
     pub cloudflared_state: Arc<crate::commands::cloudflared::CloudflaredState>,
     pub is_running: Arc<RwLock<bool>>,
 }
@@ -167,6 +170,12 @@ impl AxumServer {
         tracing::info!("实验性配置已热更新");
     }
 
+    pub async fn update_debug_logging(&self, config: &crate::proxy::config::ProxyConfig) {
+        let mut dbg_cfg = self.debug_logging.write().await;
+        *dbg_cfg = config.debug_logging.clone();
+        tracing::info!("调试日志配置已热更新");
+    }
+
     pub async fn set_running(&self, running: bool) {
         let mut r = self.is_running.write().await;
         *r = running;
@@ -185,6 +194,7 @@ impl AxumServer {
         zai_config: crate::proxy::ZaiConfig,
         monitor: Arc<crate::proxy::monitor::ProxyMonitor>,
         experimental_config: crate::proxy::config::ExperimentalConfig,
+        debug_logging: crate::proxy::config::DebugLoggingConfig,
         integration: crate::modules::integration::SystemManager,
         cloudflared_state: Arc<crate::commands::cloudflared::CloudflaredState>,
     ) -> Result<(Self, tokio::task::JoinHandle<()>), String> {
@@ -196,6 +206,7 @@ impl AxumServer {
 	        let zai_vision_mcp_state =
 	            Arc::new(crate::proxy::zai_vision_mcp::ZaiVisionMcpState::new());
 	        let experimental_state = Arc::new(RwLock::new(experimental_config));
+            let debug_logging_state = Arc::new(RwLock::new(debug_logging));
             let is_running_state = Arc::new(RwLock::new(true));
 
 	        let state = AppState {
@@ -214,12 +225,14 @@ impl AxumServer {
             zai_vision_mcp: zai_vision_mcp_state,
             monitor: monitor.clone(),
             experimental: experimental_state.clone(),
+            debug_logging: debug_logging_state.clone(),
             switching: Arc::new(RwLock::new(false)),
             integration: integration.clone(),
             account_service: Arc::new(crate::modules::account_service::AccountService::new(integration.clone())),
             security: security_state.clone(),
             cloudflared_state: cloudflared_state.clone(),
             is_running: is_running_state.clone(),
+            port,
         };
 
 
@@ -326,12 +339,12 @@ impl AxumServer {
             .route("/accounts/import/db", post(admin_import_from_db))
             .route("/accounts/import/db-custom", post(admin_import_custom_db))
             .route("/accounts/sync/db", post(admin_sync_account_from_db))
-            .route("/stats/summary", get(admin_get_stats_summary))
-            .route("/stats/hourly", get(admin_get_stats_hourly))
-            .route("/stats/daily", get(admin_get_stats_daily))
-            .route("/stats/weekly", get(admin_get_stats_weekly))
-            .route("/stats/accounts", get(admin_get_stats_accounts))
-            .route("/stats/models", get(admin_get_stats_models))
+            .route("/stats/summary", get(admin_get_token_stats_summary))
+            .route("/stats/hourly", get(admin_get_token_stats_hourly))
+            .route("/stats/daily", get(admin_get_token_stats_daily))
+            .route("/stats/weekly", get(admin_get_token_stats_weekly))
+            .route("/stats/accounts", get(admin_get_token_stats_by_account))
+            .route("/stats/models", get(admin_get_token_stats_by_model))
             .route("/config", get(admin_get_config).post(admin_save_config))
             .route("/proxy/cli/status", post(admin_get_cli_sync_status))
             .route("/proxy/cli/sync", post(admin_execute_cli_sync))
@@ -343,6 +356,8 @@ impl AxumServer {
             .route("/proxy/mapping", post(admin_update_model_mapping))
             .route("/proxy/api-key/generate", post(admin_generate_api_key))
             .route("/proxy/session-bindings/clear", post(admin_clear_proxy_session_bindings))
+            .route("/proxy/rate-limits", delete(admin_clear_all_rate_limits))
+            .route("/proxy/rate-limits/:accountId", delete(admin_clear_rate_limit))
             .route(
                 "/proxy/preferred-account",
                 get(admin_get_preferred_account).post(admin_set_preferred_account),
@@ -462,6 +477,7 @@ impl AxumServer {
             security_state,
             zai_state,
             experimental: experimental_state.clone(),
+            debug_logging: debug_logging_state.clone(),
             cloudflared_state,
             is_running: is_running_state,
         };
@@ -871,68 +887,7 @@ async fn admin_get_logs(
 
 
 
-#[derive(Deserialize, Debug, Default)]
-#[serde(rename_all = "camelCase")]
-struct StatsRequest {
-    #[serde(default = "default_stats_range")]
-    range: i64,
-}
 
-fn default_stats_range() -> i64 { 24 }
-
-async fn admin_get_stats_summary(
-    Query(params): Query<StatsRequest>,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let stats = token_stats::get_summary_stats(params.range).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))
-    })?;
-    Ok(Json(stats))
-}
-
-async fn admin_get_stats_hourly(
-    Query(params): Query<StatsRequest>,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let stats = token_stats::get_hourly_stats(params.range).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))
-    })?;
-    Ok(Json(stats))
-}
-
-async fn admin_get_stats_daily(
-    Query(params): Query<StatsRequest>,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let stats = token_stats::get_daily_stats(params.range).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))
-    })?;
-    Ok(Json(stats))
-}
-
-async fn admin_get_stats_weekly(
-    Query(params): Query<StatsRequest>,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let stats = token_stats::get_weekly_stats(params.range).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))
-    })?;
-    Ok(Json(stats))
-}
-
-async fn admin_get_stats_accounts(
-    Query(params): Query<StatsRequest>,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let stats = token_stats::get_account_stats(params.range).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))
-    })?;
-    Ok(Json(stats))
-}
-
-async fn admin_get_stats_models(
-    Query(params): Query<StatsRequest>,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let stats = token_stats::get_model_stats(params.range).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))
-    })?;
-    Ok(Json(stats))
-}
 
 
 
@@ -1004,14 +959,13 @@ async fn admin_get_proxy_status(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // 在 Headless/Axum 模式下，AxumServer 既然在运行，通常就是 running
-    let proxy_cfg = state.upstream_proxy.read().await;
-    let url = &proxy_cfg.url;
     let active_accounts = state.token_manager.len();
 
     let is_running = { *state.is_running.read().await };
     Ok(Json(serde_json::json!({
         "running": is_running,
-        "url": url,
+        "port": state.port,
+        "base_url": format!("http://127.0.0.1:{}", state.port),
         "active_accounts": active_accounts,
     })))
 }
@@ -1098,6 +1052,27 @@ async fn admin_clear_proxy_session_bindings(
     StatusCode::OK
 }
 
+async fn admin_clear_all_rate_limits(
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    state.token_manager.clear_all_rate_limits();
+    logger::log_info("[API] 已清除所有限流记录");
+    StatusCode::OK
+}
+
+async fn admin_clear_rate_limit(
+    State(state): State<AppState>,
+    Path(account_id): Path<String>,
+) -> impl IntoResponse {
+    let cleared = state.token_manager.clear_rate_limit(&account_id);
+    if cleared {
+        logger::log_info(&format!("[API] 已清除账号 {} 的限流记录", account_id));
+        StatusCode::OK
+    } else {
+        StatusCode::NOT_FOUND
+    }
+}
+
 async fn admin_get_preferred_account(
     State(state): State<AppState>,
 ) -> impl IntoResponse {
@@ -1160,21 +1135,36 @@ async fn admin_set_proxy_monitor_enabled(
     Json(payload): Json<serde_json::Value>,
 ) -> impl IntoResponse {
     let enabled = payload.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
-    state.monitor.set_enabled(enabled);
-    logger::log_info(&format!("[API] 监控状态已设置为: {}", enabled));
+    
+    // [FIX #1269] 只有在状态真正改变时才记录日志并设置，避免重复触发导致的"重启"错觉
+    if state.monitor.is_enabled() != enabled {
+        state.monitor.set_enabled(enabled);
+        logger::log_info(&format!("[API] 监控状态已设置为: {}", enabled));
+    }
+    
     StatusCode::OK
 }
 
 async fn admin_get_proxy_logs_count_filtered(
     Query(params): Query<LogsRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let count = proxy_db::get_logs_count_filtered(&params.filter, params.errors_only)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
-    Ok(Json(count))
+    let res = tokio::task::spawn_blocking(move || {
+        proxy_db::get_logs_count_filtered(&params.filter, params.errors_only)
+    }).await;
+
+    match res {
+        Ok(Ok(count)) => Ok(Json(count)),
+        Ok(Err(e)) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e.to_string() }))),
+    }
 }
 
 async fn admin_clear_proxy_logs() -> impl IntoResponse {
-    let _ = proxy_db::clear_logs();
+    let _ = tokio::task::spawn_blocking(|| {
+        if let Err(e) = proxy_db::clear_logs() {
+             logger::log_error(&format!("[API] 清除反代日志失败: {}", e));
+        }
+    }).await;
     logger::log_info("[API] 已清除所有反代日志");
     StatusCode::OK
 }
@@ -1182,9 +1172,15 @@ async fn admin_clear_proxy_logs() -> impl IntoResponse {
 async fn admin_get_proxy_log_detail(
     Path(log_id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let log = crate::modules::proxy_db::get_log_detail(&log_id)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
-    Ok(Json(log))
+    let res = tokio::task::spawn_blocking(move || {
+        crate::modules::proxy_db::get_log_detail(&log_id)
+    }).await;
+
+    match res {
+        Ok(Ok(log)) => Ok(Json(log)),
+        Ok(Err(e)) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e.to_string() }))),
+    }
 }
 
 #[derive(Deserialize, Debug, Default)]
@@ -1203,13 +1199,20 @@ struct LogsFilterQuery {
 async fn admin_get_proxy_logs_filtered(
     Query(params): Query<LogsFilterQuery>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let logs = crate::modules::proxy_db::get_logs_filtered(
-        &params.filter,
-        params.errors_only,
-        params.limit,
-        params.offset,
-    ).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
-    Ok(Json(logs))
+    let res = tokio::task::spawn_blocking(move || {
+        crate::modules::proxy_db::get_logs_filtered(
+            &params.filter,
+            params.errors_only,
+            params.limit,
+            params.offset,
+        )
+    }).await;
+
+    match res {
+        Ok(Ok(logs)) => Ok(Json(logs)),
+        Ok(Err(e)) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e.to_string() }))),
+    }
 }
 
 async fn admin_get_proxy_stats(
@@ -1217,82 +1220,6 @@ async fn admin_get_proxy_stats(
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     let stats = state.monitor.get_stats().await;
     Ok(Json(stats))
-}
-
-// Token Stats Handlers
-#[derive(Deserialize, Debug, Default)]
-#[serde(rename_all = "camelCase")]
-struct StatsPeriodQuery {
-    hours: Option<i64>,
-    days: Option<i64>,
-    weeks: Option<i64>,
-}
-
-async fn admin_get_token_stats_hourly(Query(p): Query<StatsPeriodQuery>) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let stats = crate::modules::token_stats::get_hourly_stats(p.hours.unwrap_or(24))
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
-    Ok(Json(stats))
-}
-
-async fn admin_get_token_stats_daily(Query(p): Query<StatsPeriodQuery>) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let stats = crate::modules::token_stats::get_daily_stats(p.days.unwrap_or(7))
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
-    Ok(Json(stats))
-}
-
-async fn admin_get_token_stats_weekly(Query(p): Query<StatsPeriodQuery>) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let stats = crate::modules::token_stats::get_weekly_stats(p.weeks.unwrap_or(4))
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
-    Ok(Json(stats))
-}
-
-async fn admin_get_token_stats_by_account(Query(p): Query<StatsPeriodQuery>) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let stats = crate::modules::token_stats::get_account_stats(p.hours.unwrap_or(168))
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
-    Ok(Json(stats))
-}
-
-async fn admin_get_token_stats_summary(Query(p): Query<StatsPeriodQuery>) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let stats = crate::modules::token_stats::get_summary_stats(p.hours.unwrap_or(168))
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
-    Ok(Json(stats))
-}
-
-async fn admin_get_token_stats_by_model(Query(p): Query<StatsPeriodQuery>) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let stats = crate::modules::token_stats::get_model_stats(p.hours.unwrap_or(168))
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
-    Ok(Json(stats))
-}
-
-async fn admin_get_token_stats_model_trend_hourly(Query(p): Query<StatsPeriodQuery>) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let stats = crate::modules::token_stats::get_model_trend_hourly(p.hours.unwrap_or(24))
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
-    Ok(Json(stats))
-}
-
-async fn admin_get_token_stats_model_trend_daily(Query(p): Query<StatsPeriodQuery>) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let stats = crate::modules::token_stats::get_model_trend_daily(p.days.unwrap_or(7))
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
-    Ok(Json(stats))
-}
-
-async fn admin_get_token_stats_account_trend_hourly(Query(p): Query<StatsPeriodQuery>) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let stats = crate::modules::token_stats::get_account_trend_hourly(p.hours.unwrap_or(24))
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
-    Ok(Json(stats))
-}
-
-async fn admin_get_token_stats_account_trend_daily(Query(p): Query<StatsPeriodQuery>) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let stats = crate::modules::token_stats::get_account_trend_daily(p.days.unwrap_or(7))
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
-    Ok(Json(stats))
-}
-
-async fn admin_clear_token_stats() -> impl IntoResponse {
-    // 雖然 token_stats 模組目前可能沒有導出清理方法，我們先預留接口
-    // 或直接刪除數據庫文件（更暴力但也有效）
-    logger::log_info("[API] 請求清理 Token 統計數據 (未實現)");
-    StatusCode::NOT_IMPLEMENTED
 }
 
 async fn admin_get_data_dir_path() -> impl IntoResponse {
@@ -1319,6 +1246,162 @@ async fn admin_get_antigravity_args() -> Result<impl IntoResponse, (StatusCode, 
     let args = crate::commands::get_antigravity_args().await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
     Ok(Json(args))
+}
+
+// Token Stats Handlers
+#[derive(Deserialize, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+struct StatsPeriodQuery {
+    hours: Option<i64>,
+    days: Option<i64>,
+    weeks: Option<i64>,
+}
+
+async fn admin_get_token_stats_hourly(Query(p): Query<StatsPeriodQuery>) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    let hours = p.hours.unwrap_or(24);
+    let res = tokio::task::spawn_blocking(move || {
+        token_stats::get_hourly_stats(hours)
+    }).await;
+
+    match res {
+        Ok(Ok(stats)) => Ok(Json(stats)),
+        Ok(Err(e)) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e.to_string() }))),
+    }
+}
+
+async fn admin_get_token_stats_daily(Query(p): Query<StatsPeriodQuery>) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    let days = p.days.unwrap_or(7);
+    let res = tokio::task::spawn_blocking(move || {
+        token_stats::get_daily_stats(days)
+    }).await;
+
+    match res {
+        Ok(Ok(stats)) => Ok(Json(stats)),
+        Ok(Err(e)) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e.to_string() }))),
+    }
+}
+
+async fn admin_get_token_stats_weekly(Query(p): Query<StatsPeriodQuery>) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    let weeks = p.weeks.unwrap_or(4);
+    let res = tokio::task::spawn_blocking(move || {
+        token_stats::get_weekly_stats(weeks)
+    }).await;
+
+    match res {
+        Ok(Ok(stats)) => Ok(Json(stats)),
+        Ok(Err(e)) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e.to_string() }))),
+    }
+}
+
+async fn admin_get_token_stats_by_account(Query(p): Query<StatsPeriodQuery>) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    let hours = p.hours.unwrap_or(168);
+    let res = tokio::task::spawn_blocking(move || {
+        token_stats::get_account_stats(hours)
+    }).await;
+
+    match res {
+        Ok(Ok(stats)) => Ok(Json(stats)),
+        Ok(Err(e)) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e.to_string() }))),
+    }
+}
+
+async fn admin_get_token_stats_summary(Query(p): Query<StatsPeriodQuery>) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    let hours = p.hours.unwrap_or(168);
+    let res = tokio::task::spawn_blocking(move || {
+        token_stats::get_summary_stats(hours)
+    }).await;
+
+    match res {
+        Ok(Ok(stats)) => Ok(Json(stats)),
+        Ok(Err(e)) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e.to_string() }))),
+    }
+}
+
+async fn admin_get_token_stats_by_model(Query(p): Query<StatsPeriodQuery>) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    let hours = p.hours.unwrap_or(168);
+    let res = tokio::task::spawn_blocking(move || {
+        token_stats::get_model_stats(hours)
+    }).await;
+
+    match res {
+        Ok(Ok(stats)) => Ok(Json(stats)),
+        Ok(Err(e)) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e.to_string() }))),
+    }
+}
+
+async fn admin_get_token_stats_model_trend_hourly() -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    let res = tokio::task::spawn_blocking(|| {
+        token_stats::get_model_trend_hourly(24) // Default 24 hours
+    }).await;
+
+    match res {
+        Ok(Ok(stats)) => Ok(Json(stats)),
+        Ok(Err(e)) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e.to_string() }))),
+    }
+}
+
+async fn admin_get_token_stats_model_trend_daily() -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    let res = tokio::task::spawn_blocking(|| {
+        token_stats::get_model_trend_daily(7) // Default 7 days
+    }).await;
+
+    match res {
+        Ok(Ok(stats)) => Ok(Json(stats)),
+        Ok(Err(e)) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e.to_string() }))),
+    }
+}
+
+async fn admin_get_token_stats_account_trend_hourly() -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    let res = tokio::task::spawn_blocking(|| {
+        token_stats::get_account_trend_hourly(24) // Default 24 hours
+    }).await;
+
+    match res {
+        Ok(Ok(stats)) => Ok(Json(stats)),
+        Ok(Err(e)) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e.to_string() }))),
+    }
+}
+
+async fn admin_get_token_stats_account_trend_daily() -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    let res = tokio::task::spawn_blocking(|| {
+        token_stats::get_account_trend_daily(7) // Default 7 days
+    }).await;
+
+    match res {
+        Ok(Ok(stats)) => Ok(Json(stats)),
+        Ok(Err(e)) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e.to_string() }))),
+    }
+}
+
+async fn admin_clear_token_stats() -> impl IntoResponse {
+    let res = tokio::task::spawn_blocking(|| {
+         // Clear databases (brute force)
+         if let Ok(path) = token_stats::get_db_path() {
+             let _ = std::fs::remove_file(path);
+         }
+         let _ = token_stats::init_db();
+    }).await;
+    
+    match res {
+        Ok(_) => {
+            logger::log_info("[API] 已清除所有 Token 统计数据");
+            StatusCode::OK
+        }
+        Err(e) => {
+            logger::log_error(&format!("[API] 清除 Token 统计数据失败: {}", e));
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
+    }
 }
 
 async fn admin_get_update_settings() -> impl IntoResponse {
@@ -1466,9 +1549,15 @@ struct SaveFileRequest {
 async fn admin_save_text_file(
     Json(payload): Json<SaveFileRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    std::fs::write(&payload.path, &payload.content)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e.to_string() })))?;
-    Ok(StatusCode::OK)
+    let res = tokio::task::spawn_blocking(move || {
+        std::fs::write(&payload.path, &payload.content)
+    }).await;
+
+    match res {
+        Ok(Ok(_)) => Ok(StatusCode::OK),
+        Ok(Err(e)) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e.to_string() }))),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e.to_string() }))),
+    }
 }
 
 async fn admin_save_http_api_settings(
@@ -1800,7 +1889,6 @@ async fn handle_oauth_callback(
     let code = params.code;
 
     // Exchange token
-    // 我们需要在这里直接完成 token 交换
     let port = state.security.read().await.port;
     let host = headers.get("host").and_then(|h| h.to_str().ok());
     let proto = headers.get("x-forwarded-proto").and_then(|h| h.to_str().ok());
@@ -1808,26 +1896,16 @@ async fn handle_oauth_callback(
 
     match state.token_manager.exchange_code(&code, &redirect_uri).await {
         Ok(refresh_token) => {
-            // 获取邮箱 (可选，TokenManager.add_account 内部会再获取一次用户信息，这里主要是为了快速响应)
-            // 为了简化，我们直接调用 add_account，它会处理一切
-            
-            // 下面这段逻辑模拟了 modules::account::add_account 的行为
-            // 但为了复用，我们最好直接调用 TokenManager 的方法，或者 modules::account 的方法
-            // 由于 modules::account::add_account 依赖 AppHandle (Tauri), 这里我们不能直接用。
-            // 必须依赖 TokenManager 的纯 Rust 实现。
-            
-            // 1. 获取用户信息
-             match state.token_manager.get_user_info(&refresh_token).await {
+            match state.token_manager.get_user_info(&refresh_token).await {
                 Ok(user_info) => {
-                     let email = user_info.email;
-                     // 2. 添加到 TokenManager (内部会保存)
-                     if let Err(e) = state.token_manager.add_account(&email, &refresh_token).await {
+                    let email = user_info.email;
+                    if let Err(e) = state.token_manager.add_account(&email, &refresh_token).await {
                         error!("Failed to add account: {}", e);
-                         return Ok(Html(format!(
+                        return Ok(Html(format!(
                             r#"<html><body><h1>Authorization Failed</h1><p>Failed to save account: {}</p></body></html>"#,
                             e
                         )));
-                     }
+                    }
                 }
                 Err(e) => {
                     error!("Failed to get user info: {}", e);
@@ -1836,33 +1914,60 @@ async fn handle_oauth_callback(
                         e
                     )));
                 }
-             }
+            }
 
             // Success HTML
-             Ok(Html(format!(r#"
+            Ok(Html(format!(r#"
                 <!DOCTYPE html>
                 <html>
                 <head>
                     <title>Authorization Successful</title>
                     <style>
-                        body {{ font-family: system-ui, -apple-system, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; background-color: #f9fafb; }}
-                        .card {{ background: white; padding: 2rem; border-radius: 1rem; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); text-align: center; }}
-                        h1 {{ color: #059669; margin-bottom: 0.5rem; }}
-                        p {{ color: #4b5563; }}
+                        body {{ font-family: system-ui, -apple-system, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background-color: #f9fafb; padding: 20px; box-sizing: border-box; }}
+                        .card {{ background: white; padding: 2rem; border-radius: 1.5rem; box-shadow: 0 10px 25px -5px rgb(0 0 0 / 0.1); text-align: center; max-width: 500px; width: 100%; }}
+                        .icon {{ font-size: 3rem; margin-bottom: 1rem; }}
+                        h1 {{ color: #059669; margin: 0 0 1rem 0; font-size: 1.5rem; }}
+                        p {{ color: #4b5563; line-height: 1.5; margin-bottom: 1.5rem; }}
+                        .fallback-box {{ background-color: #f3f4f6; padding: 1.25rem; border-radius: 1rem; border: 1px dashed #d1d5db; text-align: left; margin-top: 1.5rem; }}
+                        .fallback-title {{ font-weight: 600; font-size: 0.875rem; color: #1f2937; margin-bottom: 0.5rem; display: block; }}
+                        .fallback-text {{ font-size: 0.75rem; color: #6b7280; margin-bottom: 1rem; display: block; }}
+                        .copy-btn {{ width: 100%; padding: 0.75rem; background-color: #3b82f6; color: white; border: none; border-radius: 0.75rem; font-weight: 500; cursor: pointer; transition: background-color 0.2s; }}
+                        .copy-btn:hover {{ background-color: #2563eb; }}
                     </style>
                 </head>
                 <body>
                     <div class="card">
+                        <div class="icon">✅</div>
                         <h1>Authorization Successful</h1>
-                        <p>You can close this window now.</p>
+                        <p>You can close this window now. The application should refresh automatically.</p>
+                        
+                        <div class="fallback-box">
+                            <span class="fallback-title">💡 Did it not refresh?</span>
+                            <span class="fallback-text">If the application is running in a container or remote environment, you may need to manually copy the link below:</span>
+                            <button onclick="copyUrl()" class="copy-btn" id="copyBtn">Copy Completion Link</button>
+                        </div>
                     </div>
                     <script>
+                        // 1. Notify opener if exists
                         if (window.opener) {{
                             window.opener.postMessage({{
                                 type: 'oauth-success',
                                 message: 'login success'
                             }}, '*');
-                            // window.close(); // Optional: Auto close
+                        }}
+
+                        // 2. Copy URL functionality
+                        function copyUrl() {{
+                            navigator.clipboard.writeText(window.location.href).then(() => {{
+                                const btn = document.getElementById('copyBtn');
+                                const originalText = btn.innerText;
+                                btn.innerText = '✅ Link Copied!';
+                                btn.style.backgroundColor = '#059669';
+                                setTimeout(() => {{
+                                    btn.innerText = originalText;
+                                    btn.style.backgroundColor = '#3b82f6';
+                                }}, 2000);
+                            }});
                         }}
                     </script>
                 </body>
@@ -1889,25 +1994,68 @@ async fn admin_prepare_oauth_url_web(
     let redirect_uri = get_oauth_redirect_uri(port, host, proto);
     
     let state_str = uuid::Uuid::new_v4().to_string();
-    let url = state.token_manager.get_oauth_url_with_redirect(&redirect_uri, &state_str);
+    
+    // 初始化授权流状态，以及后台处理器
+    let (auth_url, mut code_rx) = crate::modules::oauth_server::prepare_oauth_flow_manually(redirect_uri.clone(), state_str.clone())
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
+
+    // 启动后台任务处理回调/手动提交的代码
+    let token_manager = state.token_manager.clone();
+    let redirect_uri_clone = redirect_uri.clone();
+    tokio::spawn(async move {
+        match code_rx.recv().await {
+            Some(Ok(code)) => {
+                crate::modules::logger::log_info("Consuming manually submitted OAuth code in background");
+                // 为 Web 回调提供简化的后端处理流程
+                match crate::modules::oauth::exchange_code(&code, &redirect_uri_clone).await {
+                    Ok(token_resp) => {
+                        // Success! Now add/upsert account
+                        if let Some(refresh_token) = &token_resp.refresh_token {
+                            match token_manager.get_user_info(refresh_token).await {
+                                Ok(user_info) => {
+                                    if let Err(e) = token_manager.add_account(&user_info.email, refresh_token).await {
+                                        crate::modules::logger::log_error(&format!("Failed to save account in background OAuth: {}", e));
+                                    } else {
+                                        crate::modules::logger::log_info(&format!("Successfully added account {} via background OAuth", user_info.email));
+                                    }
+                                }
+                                Err(e) => {
+                                    crate::modules::logger::log_error(&format!("Failed to fetch user info in background OAuth: {}", e));
+                                }
+                            }
+                        } else {
+                            crate::modules::logger::log_error("Background OAuth error: Google did not return a refresh_token.");
+                        }
+                    }
+                    Err(e) => {
+                        crate::modules::logger::log_error(&format!("Background OAuth exchange failed: {}", e));
+                    }
+                }
+            }
+            Some(Err(e)) => {
+                crate::modules::logger::log_error(&format!("Background OAuth flow error: {}", e));
+            }
+            None => {
+                crate::modules::logger::log_info("Background OAuth flow channel closed");
+            }
+        }
+    });
+
     Ok(Json(serde_json::json!({ 
-        "url": url,
+        "url": auth_url,
         "state": state_str
     })))
 }
 
 /// 辅助函数：获取 OAuth 重定向 URI
-/// 优先使用 ABV_PUBLIC_URL 环境变量 (例如 https://abv.example.com)
-fn get_oauth_redirect_uri(port: u16, host: Option<&str>, proto: Option<&str>) -> String {
+/// 强制使用 localhost，以绕过 Google 2.0 政策对 IP 地址和非 HTTPS 环境的拦截。
+/// 只有在显式设置了 ABV_PUBLIC_URL (例如用户配置了 HTTPS 域名) 时才会使用外部地址。
+fn get_oauth_redirect_uri(port: u16, _host: Option<&str>, _proto: Option<&str>) -> String {
     if let Ok(public_url) = std::env::var("ABV_PUBLIC_URL") {
         let base = public_url.trim_end_matches('/');
         format!("{}/auth/callback", base)
-    } else if let Some(host) = host {
-        // 如果提供了 host (从 Header 中提取)，动态构建重定向地址
-        let scheme = proto.unwrap_or("http");
-        format!("{}://{}/auth/callback", scheme, host)
     } else {
+        // 强制返回 localhost。远程部署时，用户可通过回填功能完成授权。
         format!("http://localhost:{}/auth/callback", port)
     }
 }
-
