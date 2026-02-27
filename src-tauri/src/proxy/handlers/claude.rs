@@ -22,8 +22,137 @@ use crate::proxy::server::AppState;
 use crate::proxy::mappers::context_manager::ContextManager;
 use crate::proxy::mappers::estimation_calibrator::get_calibrator;
 use crate::proxy::debug_logger;
+use crate::proxy::upstream::client::mask_email;
+use crate::proxy::common::client_adapter::CLIENT_ADAPTERS; // [NEW] Import Adapter Registry
 use axum::http::HeaderMap;
 use std::sync::{atomic::Ordering, Arc};
+
+// ===== Task #6: OpenCode variants thinking config mapping =====
+// Helper structs for parsing thinking hints from raw JSON
+#[derive(Debug, Clone)]
+struct ThinkingHint {
+    budget_tokens: Option<u32>,
+    level: Option<String>,
+}
+
+/// Extract thinking hints from raw request JSON (OpenCode variants compatibility)
+/// Checks multiple possible paths for budget and level configuration
+fn extract_thinking_hint(body: &Value) -> ThinkingHint {
+    let mut hint = ThinkingHint {
+        budget_tokens: None,
+        level: None,
+    };
+
+    // Try to extract budget_tokens from various paths
+    // Priority: thinking.budget_tokens > thinking.budgetTokens > thinking.budget > thinkingConfig.thinkingBudget
+    if let Some(budget) = body
+        .get("thinking")
+        .and_then(|t| t.get("budget_tokens"))
+        .and_then(|b| b.as_u64())
+    {
+        hint.budget_tokens = Some(budget as u32);
+    } else if let Some(budget) = body
+        .get("thinking")
+        .and_then(|t| t.get("budgetTokens"))
+        .and_then(|b| b.as_u64())
+    {
+        hint.budget_tokens = Some(budget as u32);
+    } else if let Some(budget) = body
+        .get("thinking")
+        .and_then(|t| t.get("budget"))
+        .and_then(|b| b.as_u64())
+    {
+        hint.budget_tokens = Some(budget as u32);
+    } else if let Some(budget) = body
+        .get("thinkingConfig")
+        .and_then(|t| t.get("thinkingBudget"))
+        .and_then(|b| b.as_u64())
+    {
+        hint.budget_tokens = Some(budget as u32);
+    }
+
+    // Try to extract level from thinkingLevel
+    if let Some(level) = body.get("thinkingLevel").and_then(|l| l.as_str()) {
+        hint.level = Some(level.to_lowercase());
+    }
+
+    hint
+}
+
+/// Map thinking level to suggested budget tokens
+fn level_to_budget(level: &str) -> u32 {
+    match level {
+        "minimal" => 1024,
+        "low" => 8192,
+        "medium" => 16384,
+        "high" => 24576,
+        _ => 8192, // default to low
+    }
+}
+
+/// Map thinking level to effort level for output_config
+fn level_to_effort(level: &str) -> String {
+    match level {
+        "minimal" | "low" => "low".to_string(),
+        "medium" => "medium".to_string(),
+        "high" => "high".to_string(),
+        _ => "low".to_string(),
+    }
+}
+
+/// Apply thinking hints to ClaudeRequest
+fn apply_thinking_hints(
+    request: &mut crate::proxy::mappers::claude::models::ClaudeRequest,
+    hint: &ThinkingHint,
+    trace_id: &str,
+) {
+    let mut applied = false;
+
+    // If budget is provided, set/override thinking config
+    if let Some(budget) = hint.budget_tokens {
+        request.thinking = Some(crate::proxy::mappers::claude::models::ThinkingConfig {
+            type_: "enabled".to_string(),
+            budget_tokens: Some(budget),
+            effort: None,
+        });
+        tracing::debug!(
+            "[{}] Applied thinking hint: budget_tokens={}",
+            trace_id, budget
+        );
+        applied = true;
+    }
+
+    // If level is provided
+    if let Some(ref level) = hint.level {
+        // Map to output_config.effort if not already set
+        if request.output_config.is_none() {
+            request.output_config = Some(crate::proxy::mappers::claude::models::OutputConfig {
+                effort: Some(level_to_effort(level)),
+            });
+            tracing::debug!("[{}] Applied thinking hint: effort={}", trace_id, level);
+            applied = true;
+        }
+
+        // If no budget provided but level is, map level to budget
+        if hint.budget_tokens.is_none() {
+            let budget = level_to_budget(level);
+            request.thinking = Some(crate::proxy::mappers::claude::models::ThinkingConfig {
+                type_: "enabled".to_string(),
+                budget_tokens: Some(budget),
+                effort: None,
+            });
+            tracing::debug!(
+                "[{}] Applied thinking hint: level={} -> budget_tokens={}",
+                trace_id, level, budget
+            );
+            applied = true;
+        }
+    }
+
+    if applied {
+        tracing::info!("[{}] Applied OpenCode thinking hints to request", trace_id);
+    }
+}
 
 const MAX_RETRY_ATTEMPTS: usize = 3;
 
@@ -127,6 +256,13 @@ pub async fn handle_messages(
         .map(char::from)
         .collect::<String>().to_lowercase();
     let debug_cfg = state.debug_logging.read().await.clone();
+    
+    // [NEW] Detect Client Adapter
+    // 检查是否有匹配的客户端适配器（如 opencode）
+    let client_adapter = CLIENT_ADAPTERS.iter().find(|a| a.matches(&headers)).cloned();
+    if let Some(_adapter) = &client_adapter {
+        tracing::debug!("[{}] Client Adapter detected: Applying custom strategies", trace_id);
+    }
         
     // Decide whether this request should be handled by z.ai (Anthropic passthrough) or the existing Google flow.
     let zai = state.zai.read().await.clone();
@@ -134,7 +270,7 @@ pub async fn handle_messages(
     let google_accounts = state.token_manager.len();
 
     // [CRITICAL REFACTOR] 优先解析请求以获取模型信息(用于智能兜底判断)
-    let mut request: crate::proxy::mappers::claude::models::ClaudeRequest = match serde_json::from_value(body) {
+    let mut request: crate::proxy::mappers::claude::models::ClaudeRequest = match serde_json::from_value(body.clone()) {
         Ok(r) => r,
         Err(e) => {
             return (
@@ -149,6 +285,10 @@ pub async fn handle_messages(
             ).into_response();
         }
     };
+
+    // [Task #6] Apply OpenCode variants thinking hints from raw JSON
+    let thinking_hint = extract_thinking_hint(&original_body);
+    apply_thinking_hints(&mut request, &thinking_hint, &trace_id);
 
     if debug_logger::is_enabled(&debug_cfg) {
         // [FIX] 使用原始 body 副本记录日志，确保不丢失任何字段
@@ -402,7 +542,9 @@ pub async fn handle_messages(
             &mapped_model,
             &tools_val,
             request.size.as_deref(),      // [NEW] Pass size parameter
-            request.quality.as_deref()    // [NEW] Pass quality parameter
+            request.quality.as_deref(),   // [NEW] Pass quality parameter
+            None,  // image_size
+            None,  // body
         );
 
         // 0. 尝试提取 session_id 用于粘性调度 (Phase 2/3)
@@ -411,7 +553,7 @@ pub async fn handle_messages(
         let session_id = Some(session_id_str.as_str());
 
         let force_rotate_token = attempt > 0;
-        let (access_token, project_id, email, _wait_ms) = match token_manager.get_token(&config.request_type, force_rotate_token, session_id, &config.final_model).await {
+        let (access_token, project_id, email, account_id, _wait_ms) = match token_manager.get_token(&config.request_type, force_rotate_token, session_id, &config.final_model).await {
             Ok(t) => t,
             Err(e) => {
                 let safe_message = if e.contains("invalid_grant") {
@@ -643,12 +785,12 @@ pub async fn handle_messages(
             0 // Don't record calibration data when content was purified
         };
 
-        request_with_mapped.model = mapped_model;
+        request_with_mapped.model = mapped_model.clone();
 
         // 生成 Trace ID (简单用时间戳后缀)
         // let _trace_id = format!("req_{}", chrono::Utc::now().timestamp_subsec_millis());
 
-        let gemini_body = match transform_claude_request_in(&request_with_mapped, &project_id, retried_without_thinking) {
+        let gemini_body = match transform_claude_request_in(&request_with_mapped, &project_id, retried_without_thinking, Some(account_id.as_str()), &session_id_str) {
             Ok(b) => {
                 debug!("[{}] Transformed Gemini Body: {}", trace_id, serde_json::to_string_pretty(&b).unwrap_or_default());
                 b
@@ -698,16 +840,31 @@ pub async fn handle_messages(
     
     let method = if actual_stream { "streamGenerateContent" } else { "generateContent" };
     let query = if actual_stream { Some("alt=sse") } else { None };
-        // [FIX #765] Prepare Beta Headers for Thinking + Tools
+        // [FIX #765/1522] Prepare Robust Beta Headers for Claude models
         let mut extra_headers = std::collections::HashMap::new();
-        if request_with_mapped.thinking.is_some() && request_with_mapped.tools.is_some() {
-            extra_headers.insert("anthropic-beta".to_string(), "interleaved-thinking-2025-05-14".to_string());
-            tracing::debug!("[{}] Added Beta Header: interleaved-thinking-2025-05-14", trace_id);
+        if mapped_model.to_lowercase().contains("claude") {
+            extra_headers.insert("anthropic-beta".to_string(), "claude-code-20250219".to_string());
+            tracing::debug!("[{}] Added Comprehensive Beta Headers for Claude model", trace_id);
+        }
+        
+        // [NEW] Inject Beta Headers from Client Adapter
+        if let Some(adapter) = &client_adapter {
+            let mut temp_headers = HeaderMap::new();
+            adapter.inject_beta_headers(&mut temp_headers);
+            for (k, v) in temp_headers {
+                if let Some(name) = k {
+                    if let Ok(v_str) = v.to_str() {
+                        extra_headers.insert(name.to_string(), v_str.to_string());
+                        tracing::debug!("[{}] Added Adapter Header: {}: {}", trace_id, name, v_str);
+                    }
+                }
+            }
         }
 
-        // 5. 上游调用
-        let response = match upstream
-            .call_v1_internal_with_headers(method, &access_token, gemini_body, query, extra_headers.clone())
+        // Upstream call configuration continued...
+
+        let call_result = match upstream
+            .call_v1_internal_with_headers(method, &access_token, gemini_body, query, extra_headers.clone(), Some(account_id.as_str()))
             .await {
             Ok(r) => r,
             Err(e) => {
@@ -716,7 +873,32 @@ pub async fn handle_messages(
                 continue;
             }
         };
-        
+
+        // [NEW] 记录端点降级日志到 debug 文件
+        if !call_result.fallback_attempts.is_empty() && debug_logger::is_enabled(&debug_cfg) {
+            let fallback_entries: Vec<Value> = call_result.fallback_attempts.iter().map(|a| {
+                json!({
+                    "endpoint_url": a.endpoint_url,
+                    "status": a.status,
+                    "error": a.error,
+                })
+            }).collect();
+            let payload = json!({
+                "kind": "endpoint_fallback",
+                "protocol": "anthropic",
+                "trace_id": trace_id,
+                "original_model": request.model,
+                "mapped_model": request_with_mapped.model,
+                "attempt": attempt,
+                "account": mask_email(&email),
+                "fallback_attempts": fallback_entries,
+            });
+            debug_logger::write_debug_payload(&debug_cfg, Some(&trace_id), "endpoint_fallback", &payload).await;
+        }
+
+        let response = call_result.response;
+        // [NEW] 提取实际请求的上游端点 URL，用于日志记录和排查
+        let upstream_url = response.url().to_string();
         let status = response.status();
         last_status = status;
         
@@ -738,8 +920,9 @@ pub async fn handle_messages(
                     "request_type": config.request_type,
                     "attempt": attempt,
                     "status": status.as_u16(),
+                    "upstream_url": upstream_url,
                 });
-                let gemini_stream = debug_logger::wrap_reqwest_stream_with_debug(
+                let gemini_stream = debug_logger::wrap_stream_with_debug(
                     Box::pin(response.bytes_stream()),
                     debug_cfg.clone(),
                     trace_id.clone(),
@@ -748,6 +931,12 @@ pub async fn handle_messages(
                 );
 
                 let current_message_count = request_with_mapped.messages.len();
+
+                // [FIX #MCP] Extract registered tool names for MCP fuzzy matching
+                let registered_tool_names: Vec<String> = request_with_mapped.tools
+                    .as_ref()
+                    .map(|tools| tools.iter().filter_map(|t| t.name.clone()).collect())
+                    .unwrap_or_default();
 
                 // [FIX #530/#529/#859] Enhanced Peek logic to handle heartbeats and slow start
                 // We must pre-read until we find a MEANINGFUL content block (like message_start).
@@ -761,6 +950,8 @@ pub async fn handle_messages(
                     context_limit,
                     Some(raw_estimated), // [FIX] Pass estimated tokens for calibrator learning
                     current_message_count, // [NEW v4.0.0] Pass message count for rewind detection
+                    client_adapter.clone(), // [NEW] Pass client adapter
+                    registered_tool_names, // [FIX #MCP] Pass tool names for fuzzy matching
                 );
 
                 let mut first_data_chunk = None;
@@ -949,6 +1140,8 @@ pub async fn handle_messages(
                 "request_type": config.request_type,
                 "attempt": attempt,
                 "status": status_code,
+                "upstream_url": upstream_url,
+                "account": mask_email(&email),
                 "error_text": error_text,
             });
             debug_logger::write_debug_payload(&debug_cfg, Some(&trace_id), "upstream_response_error", &payload).await;
@@ -956,7 +1149,7 @@ pub async fn handle_messages(
         
         // 3. 标记限流状态(用于 UI 显示) - 使用异步版本以支持实时配额刷新
         // 🆕 传入实际使用的模型,实现模型级别限流,避免不同模型配额互相影响
-        if status_code == 429 || status_code == 529 || status_code == 503 || status_code == 500 {
+        if status_code == 429 || status_code == 529 || status_code == 503 || status_code == 500 || status_code == 404 {
             token_manager.mark_rate_limited_async(&email, status_code, retry_after.as_deref(), &error_text, Some(&request_with_mapped.model)).await;
         }
 
@@ -1045,8 +1238,12 @@ pub async fn handle_messages(
             if request_for_body.model.contains("claude-") {
                 let mut m = request_for_body.model.clone();
                 m = m.replace("-thinking", "");
-                if m.contains("claude-sonnet-4-5-") {
-                    m = "claude-sonnet-4-5".to_string();
+                if m.contains("claude-sonnet-4-6-") {
+                    m = "claude-sonnet-4-6".to_string();
+                } else if m.contains("claude-sonnet-4-5-") {
+                    m = "claude-sonnet-4-6".to_string();
+                } else if m.contains("claude-opus-4-6-") {
+                    m = "claude-opus-4-6".to_string();
                 } else if m.contains("claude-opus-4-5-") || m.contains("claude-opus-4-") {
                     m = "claude-opus-4-5".to_string();
                 }
@@ -1069,8 +1266,33 @@ pub async fn handle_messages(
         // 5. 统一处理所有可重试错误
         // [REMOVED] 不再特殊处理 QUOTA_EXHAUSTED,允许账号轮换
         // 原逻辑会在第一个账号配额耗尽时直接返回,导致"平衡"模式无法切换账号
-        
-        
+
+        // [FIX] 403 时设置 is_forbidden 状态，避免账号被重复选中
+        if status_code == 403 {
+            // Check for VALIDATION_REQUIRED error - temporarily block account
+            if error_text.contains("VALIDATION_REQUIRED") ||
+               error_text.contains("verify your account") ||
+               error_text.contains("validation_url")
+            {
+                tracing::warn!(
+                    "[Claude] VALIDATION_REQUIRED detected on account {}, temporarily blocking",
+                    email
+                );
+                let block_minutes = 10i64;
+                let block_until = chrono::Utc::now().timestamp() + (block_minutes * 60);
+                if let Err(e) = token_manager.set_validation_block_public(&account_id, block_until, &error_text).await {
+                    tracing::error!("Failed to set validation block: {}", e);
+                }
+            }
+
+            // 设置 is_forbidden 状态
+            if let Err(e) = token_manager.set_forbidden(&account_id, &error_text).await {
+                tracing::error!("Failed to set forbidden status for {}: {}", email, e);
+            } else {
+                tracing::warn!("[Claude] Account {} marked as forbidden due to 403", email);
+            }
+        }
+
         // 确定重试策略
         let strategy = determine_retry_strategy(status_code, &error_text, retried_without_thinking);
         
@@ -1101,7 +1323,10 @@ pub async fn handle_messages(
 
             // 不可重试的错误，直接返回
             error!("[{}] Non-retryable error {}: {}", trace_id, status_code, error_text);
-            return (status, [("X-Account-Email", email.as_str())], error_text).into_response();
+            return (status, [
+                ("X-Account-Email", email.as_str()),
+                ("X-Mapped-Model", request_with_mapped.model.as_str())
+            ], error_text).into_response();
         }
     }
     
@@ -1125,7 +1350,14 @@ pub async fn handle_messages(
             _ => "api_error",
         };
 
-        (last_status, headers, Json(json!({
+        // [FIX] 403 时返回 503，避免 Claude Code 客户端退出到登录页
+        let response_status = if last_status.as_u16() == 403 {
+            StatusCode::SERVICE_UNAVAILABLE
+        } else {
+            last_status
+        };
+
+        (response_status, headers, Json(json!({
             "type": "error",
             "error": {
                 "id": "err_retry_exhausted",
@@ -1141,7 +1373,7 @@ pub async fn handle_messages(
                 headers.insert("X-Mapped-Model", v);
              }
         }
-        
+
         let error_type = match last_status.as_u16() {
             400 => "invalid_request_error",
             401 => "authentication_error",
@@ -1151,7 +1383,14 @@ pub async fn handle_messages(
             _ => "api_error",
         };
 
-        (last_status, headers, Json(json!({
+        // [FIX] 403 时返回 503，避免 Claude Code 客户端退出到登录页
+        let response_status = if last_status.as_u16() == 403 {
+            StatusCode::SERVICE_UNAVAILABLE
+        } else {
+            last_status
+        };
+
+        (response_status, headers, Json(json!({
             "type": "error",
             "error": {
                 "id": "err_retry_exhausted",
@@ -1168,6 +1407,7 @@ pub async fn handle_list_models(State(state): State<AppState>) -> impl IntoRespo
 
     let model_ids = get_all_dynamic_models(
         &state.custom_mapping,
+        Some(&state.token_manager)
     ).await;
 
     let data: Vec<_> = model_ids.into_iter().map(|id| {
@@ -1512,12 +1752,12 @@ async fn call_gemini_sync(
     trace_id: &str,
 ) -> Result<String, String> {
     // Get token and transform request
-    let (access_token, project_id, _, _wait_ms) = token_manager
+    let (access_token, project_id, _, account_id, _wait_ms) = token_manager
         .get_token("gemini", false, None, model)
         .await
         .map_err(|e| format!("Failed to get account: {}", e))?;
     
-    let gemini_body = crate::proxy::mappers::claude::transform_claude_request_in(request, &project_id, false)
+    let gemini_body = crate::proxy::mappers::claude::transform_claude_request_in(request, &project_id, false, Some(account_id.as_str()), trace_id)
         .map_err(|e| format!("Failed to transform request: {}", e))?;
     
     // Call Gemini API

@@ -22,7 +22,9 @@
         "warning": "Aviso",
         "info": "Informação",
         "details": "Detalhes",
+        "example": "Example",
         "clear": "Limpar",
+        "clearing": "Limpando...",
         "prev_page": "Anterior",
         "next_page": "Próxima",
         "pagination_info": "Mostrando {{start}} a {{end}} de {{total}} entradas",
@@ -33,13 +35,20 @@
         "disabled": "Desabilitado",
         "tauri_api_not_loaded": "API Tauri não carregada, por favor reinicie o aplicativo",
         "environment_error": "Erro de ambiente: {{error}}",
-        "submit": "Enviar"
+        "submit": "Enviar",
+        "update": "Atualizar",
+        "load_failed": "Falha ao carregar",
+        "create_success": "Criado com sucesso",
+        "update_success": "Atualizado com sucesso",
+        "delete_success": "Excluído com sucesso",
+        "copied": "Copiado para a área de transferência"
     },
     "nav": {
         "dashboard": "Painel",
         "accounts": "Contas",
         "proxy": "Proxy da API",
         "call_records": "Registros de Tráfego",
+        "security": "Gestão de IP",
         "settings": "Configurações",
         "theme_to_dark": "Alternar para Modo Escuro",
         "theme_to_light": "Alternar para Modo Claro",
@@ -58,7 +67,14 @@
         "switch_to_portuguese": "Alternar para Português",
         "switch_to_portuguese_short": "PT",
         "switch_to_russian": "Alternar para Russo",
-        "switch_to_russian_short": "RU"
+        "switch_to_russian_short": "RU",
+        "switch_to_korean": "Alternar para Coreano",
+        "switch_to_korean_short": "KO",
+        "switch_to_spanish": "Alternar para Espanhol",
+        "switch_to_spanish_short": "ES",
+        "switch_to_malay": "Alternar para Malaio",
+        "switch_to_malay_short": "MY",
+        "user_token": "Tokens de usuário"
     },
     "dashboard": {
         "hello": "Olá, Usuário 👋",
@@ -94,13 +110,17 @@
         }
     },
     "accounts": {
-        "search_placeholder": "Pesquisar email...",
+        "account": "Conta",
+        "search_placeholder": "Pesquisar e-mail...",
         "all": "Todas",
         "available": "Disponíveis",
         "low_quota": "Cota Baixa",
         "ultra": "ULTRA",
         "pro": "PRO",
         "free": "GRÁTIS",
+        "edit_label": "Editar rótulo",
+        "custom_label_placeholder": "Digite um rótulo personalizado",
+        "label_updated": "Rótulo atualizado",
         "add_account": "Adicionar Conta",
         "refresh_all": "Atualizar Todas",
         "refresh_selected": "Atualizar ({{count}})",
@@ -121,13 +141,24 @@
         "forbidden": "403",
         "forbidden_badge": "403",
         "forbidden_tooltip": "API retornou 403 Forbidden, conta não tem permissão para Gemini Code Assist",
-        "forbidden_msg": "Proibido, pular atualização automática",
-        "no_data": "Sem Dados",
+        "forbidden_msg": "Proibido, ignorar atualização automática",
+        "status": {
+            "forbidden": "403 Proibido",
+            "disabled": "Conta desativada",
+            "proxy_disabled": "Proxy desativado"
+        },
+        "error_details": "Detalhes do erro",
+        "error_status": "Status do erro",
+        "error_time": "Hora de detecção",
+        "view_error": "Ver motivo",
+        "click_to_verify": "Clique para verificar",
+        "no_data": "Nenhum dado",
         "last_used": "Último Uso",
         "reset_time": "Tempo de Reset",
         "switch_to": "Alternar para esta conta",
         "actions": "Ações",
         "device_fingerprint": "Impressão Digital do Dispositivo",
+        "show_all_quotas": "Mostrar todas as cotas",
         "device_fingerprint_dialog": {
             "title": "Impressão Digital do Dispositivo",
             "operations": "Operações de Impressão Digital do Dispositivo",
@@ -172,7 +203,9 @@
         "warmup_batch_triggered": "Tarefas de aquecimento acionadas para {{count}} contas",
         "quota_protected": "Protegido",
         "details": {
-            "title": "Detalhes da Cota"
+            "title": "Detalhes da Cota",
+            "model_quota": "Cota do Modelo",
+            "protected_models": "Modelos Protegidos"
         },
         "toast": {
             "proxy_enabled": "Proxy habilitado para {{count}} contas",
@@ -197,7 +230,12 @@
                 "link_click_to_copy": "Clique para copiar",
                 "manual_hint": "O navegador não redirecionou automaticamente? Cole o link de retorno ou o Código de Autorização aqui:",
                 "manual_placeholder": "Cole o link ou o código aqui...",
-                "error_no_flow": "Nenhum fluxo de autenticação ativo encontrado. Por favor, reinicie o OAuth."
+                "error_no_flow": "Nenhum fluxo de autenticação ativo encontrado. Por favor, reinicie o OAuth.",
+                "web_hint": "A página de login do Google será aberta em uma nova janela",
+                "error_no_url": "Não foi possível obter a URL OAuth",
+                "popup_blocked": "Popup bloqueado",
+                "manual_submitting": "Enviando código de autorização...",
+                "manual_submitted": "Código de autorização enviado, processando em segundo plano..."
             },
             "token": {
                 "label": "Refresh Token",
@@ -268,7 +306,8 @@
             "account": "Conta",
             "proxy": "Configurações do Proxy",
             "advanced": "Avançado",
-            "about": "Sobre"
+            "about": "Sobre",
+            "debug": "Depuração"
         },
         "general": {
             "title": "Configurações Gerais",
@@ -321,6 +360,59 @@
         "proxy": {
             "title": "Configurações do Proxy"
         },
+        "proxy_pool": {
+            "title": "Proxy Pool",
+            "strategy_priority": "Priority",
+            "strategy_round_robin": "Round Robin",
+            "strategy_random": "Random",
+            "strategy_least_connections": "Least Connections",
+            "test_all": "Test All",
+            "batch_import": "Import",
+            "binding_manager": "Bindings",
+            "add_proxy": "Add Proxy",
+            "edit_proxy": "Edit Proxy",
+            "name": "Name",
+            "url": "Proxy URL",
+            "username": "Username",
+            "password": "Password",
+            "max_accounts": "Max Accounts",
+            "max_accounts_hint": "0 = Unlimited",
+            "priority": "Priority",
+            "priority_hint": "Lower is better",
+            "health_check_url": "Health Check URL",
+            "tags": "Tags",
+            "add_tag_placeholder": "Add tag...",
+            "seconds": "Sec",
+            "test_completed": "Health check completed",
+            "test_failed": "Health check failed",
+            "confirm_delete": "Are you sure you want to delete this proxy?",
+            "empty": "No proxies available",
+            "column_priority": "Priority",
+            "column_status": "Status",
+            "column_details": "Proxy Details",
+            "column_bindings": "Bindings",
+            "import_title": "Batch Import Proxies",
+            "import_label": "Paste Proxy List (One per line)",
+            "import_hint": "Supported formats: protocol://user:pass@host:port, host:port:user:pass",
+            "import_preview": "Preview",
+            "import_confirm": "Import {{count}} Proxies",
+            "no_valid_proxies": "No valid proxies found",
+            "binding": {
+                "title": "Account Proxy Bindings",
+                "load_failed": "Failed to load bindings",
+                "unbind_success": "Unbound successfully",
+                "bind_success": "Bound successfully",
+                "update_failed": "Failed to update binding",
+                "assigned_proxy": "Assigned Proxy",
+                "default_strategy": "Default (Follow Strategy)"
+            },
+            "status": {
+                "inactive": "Inactive",
+                "checking": "Checking",
+                "healthy": "Healthy",
+                "timeout": "Timeout"
+            }
+        },
         "advanced": {
             "title": "Configurações Avançadas",
             "export_path": "Caminho de Exportação Padrão",
@@ -351,6 +443,20 @@
             "clear_logs_title": "Confirmação de Limpeza de Logs",
             "clear_logs_msg": "Tem certeza de que deseja limpar todos os arquivos de cache de log?",
             "logs_cleared": "Cache de logs limpo",
+            "antigravity_cache_title": "Limpeza de Cache do Antigravity",
+            "antigravity_cache_desc": "Limpar o cache do Antigravity pode resolver falhas de login, erros de validação de versão e falhas de autorização OAuth.",
+            "antigravity_cache_warning": "Certifique-se de que o Antigravity está completamente fechado antes de limpar o cache.",
+            "clear_antigravity_cache": "Limpar Cache do Antigravity",
+            "clear_cache_confirm_title": "Confirmar Limpeza do Cache do Antigravity",
+            "clear_cache_confirm_msg": "Os seguintes diretórios de cache serão limpos:",
+            "cache_cleared_success": "Cache limpo com sucesso, {{size}} MB liberados",
+            "cache_not_found": "Diretórios de cache do Antigravity não encontrados",
+            "debug_logs_title": "Log de depuração",
+            "debug_logs_enable_desc": "Quando ativado, registra a cadeia completa de requisição e resposta. Recomenda-se ativar apenas ao solucionar problemas.",
+            "debug_logs_desc": "Registra a cadeia completa: entrada original, requisição v1internal transformada e resposta upstream. Apenas para solução de problemas, pode conter dados sensíveis.",
+            "debug_log_dir": "Diretório de saída do log de depuração",
+            "debug_log_dir_hint": "Deixe vazio para usar o diretório padrão: {{path}}/debug_logs",
+            "debug_log_dir_select": "Selecionar diretório de saída do log de depuração",
             "http_api_title": "Serviço HTTP API",
             "http_api_desc": "Fornece interface HTTP local para programas externos (por exemplo, plugins do VS Code).",
             "http_api_enabled": "Habilitar HTTP API",
@@ -361,6 +467,12 @@
             "http_api_port_invalid": "Número de porta inválido (intervalo: 1024-65535)",
             "http_api_settings_saved": "Configurações HTTP API salvas, reinício necessário para aplicar",
             "http_api_restart_required": "⚠️ Reinício necessário para aplicar"
+        },
+        "menu": {
+            "title": "Configurações de exibição do menu",
+            "desc": "Selecione os itens de função a exibir na barra de menu. Ocultar menus pouco utilizados pode economizar espaço.",
+            "selected_items_note": "Os itens selecionados serão exibidos na barra de menu superior.",
+            "required": "Obrigatório"
         },
         "about": {
             "title": "Sobre",
@@ -383,6 +495,41 @@
             "support_alipay": "Alipay",
             "support_wechat": "WeChat Pay",
             "support_buymeacoffee": "Buy Me a Coffee"
+        },
+        "advanced_thinking": {
+            "title": "Pensamento Avançado e Configuração Global",
+            "description": "Gerencie capacidades de pensamento, modos de imagem e instruções globais centralmente."
+        },
+        "thinking_budget": {
+            "title": "Orçamento de Pensamento (Thinking Budget)",
+            "description": "Controla o orçamento de tokens para o pensamento profundo da IA. Alguns modelos (ex: Flash, modelos com sufixo -thinking) são limitados a 24576 pela API upstream.",
+            "mode_label": "Modo de Processamento",
+            "mode": {
+                "auto": "Limite Automático",
+                "passthrough": "Passagem Direta",
+                "custom": "Personalizado"
+            },
+            "auto_hint": "Modo Automático: Limita automaticamente o orçamento em 24576 para modelos Flash, modelos com sufixo -thinking e solicitações de pesquisa na web para evitar erros de API.",
+            "passthrough_warning": "Passagem Direta: Usa diretamente o valor original do chamador. A falta de suporte para valores altos pode causar falhas.",
+            "custom_value_hint": "Recomendado: 24576 (Flash) ou 51200 (Estendido)",
+            "tokens": "tokens"
+        },
+        "image_thinking_mode": {
+            "title": "Modo de Pensamento de Iimagem (Image Thinking Mode)",
+            "hint": "Afeta a qualidade da imagem e o processo de geração",
+            "options": {
+                "enabled": "Ativado",
+                "disabled": "Desativado",
+                "enabled_desc": "Ligado: Mantém a cadeia de pensamento e retorna duas imagens (esboço + final).",
+                "disabled_desc": "Desligado: Desativa a cadeia de pensamento e gera uma imagem única de alta qualidade (prioridade qualidade)."
+            }
+        },
+        "global_system_prompt": {
+            "title": "Instruções do Sistema Globais (Global System Prompt)",
+            "hint": "Injetado automaticamente em systemInstruction para todas as solicitações",
+            "placeholder": "Insira as instruções globais do sistema...\nExemplo: Você é um desenvolvedor full-stack sênior especialista em React e Rust. Responda em português.",
+            "char_count": "{{count}} caracteres",
+            "long_prompt_warning": "As instruções são muito longas (mais de 2000 caracteres) e podem consumir muito espaço do contexto."
         }
     },
     "tray": {
@@ -410,6 +557,12 @@
         },
         "config": {
             "title": "Configuração do Serviço",
+            "request": {
+                "user_agent": "User-Agent Override",
+                "user_agent_tooltip": "Override the User-Agent header sent to upstream APIs. Leave empty to use default.",
+                "user_agent_hint": "Current Default: antigravity/<version> <os>/<arch>",
+                "user_agent_placeholder": "Enter custom User-Agent string..."
+            },
             "port": "Porta de Escuta",
             "port_tooltip": "Porta TCP que o Proxy da API local escuta. Pare o serviço para alterá-la, depois reinicie para aplicar.",
             "port_hint": "Padrão 8045, reinício necessário para aplicar alterações",
@@ -517,13 +670,15 @@
             "enable_logging": "Habilitar Registro de Solicitações",
             "enable_logging_hint": "Registrar histórico para depuração (Custo de desempenho menor)",
             "upstream_proxy": {
-                "title": "Proxy Upstream Global (Proxy Global)",
-                "desc": "Quando habilitado, todas as solicitações externas (Proxy da API, Atualização de Token, Verificação de Cota, Verificação de Atualização) serão roteadas através deste proxy.",
-                "enable": "Habilitar Proxy Upstream",
-                "url": "URL do Proxy",
+                "title": "Proxy de upstream global (Global Proxy)",
+                "desc": "Quando habilitado, todas as solicitações externas (API Proxy, atualização de token, verificação de cota, verificação de atualização) serão roteadas por meio desse proxy.",
+                "desc_short": "Proxy global usado como solução de fallback quando nenhuma conta adequada é encontrada no pool de proxies.",
+                "enable": "Habilitar proxy de upstream",
+                "url": "URL do proxy",
                 "url_placeholder": "ex: http://127.0.0.1:7890 ou socks5://127.0.0.1:7890",
                 "tip": "Suporta HTTP, HTTPS e SOCKS5.",
-                "validation_error": "URL do proxy é obrigatório quando o proxy upstream está habilitado",
+                "socks5h_hint": "Para evitar bloqueos e manter a resolução DNS remota (Remote DNS), altere manualmente o protocolo para socks5h://",
+                "validation_error": "A URL do proxy é necessária quando o proxy de upstream está habilitado",
                 "restart_hint": "Configurações de proxy salvas. Reinicie o aplicativo para aplicar as alterações."
             },
             "scheduling": {
@@ -666,35 +821,22 @@
             "restore_defaults": "Restaurar Configuração Padrão",
             "reset_all": "Redefinir Tudo"
         },
-        "models": {
-            "flash": "Ultra-rápido",
-            "flash_thinking": "Capacidade de Pensamento",
-            "pro_high": "Melhor Raciocínio",
-            "pro_low": "Cota Baixa",
-            "sonnet": "Raciocínio de Código",
-            "sonnet_thinking": "Cadeia de Pensamento",
-            "opus_thinking": "Pensamento Mais Forte"
-        },
         "router": {
             "title": "Roteador de Modelos",
-            "subtitle": "Rotear modelos por série ou adicionar mapeamentos exatos personalizados.\nNota: Modelos de passagem nativa Claude (ex: claude-opus-4-5-thinking) ignoram grupos de série por padrão. Use \"Roteamento Personalizado Especialista\" para substituir.",
+            "subtitle": "Rotear modelos por série ou adicionar mapeamentos exatos personalizados.\nNota: Modelos de passagem nativa Claude (ex: claude-opus-4-6-thinking) ignoram grupos de série por padrão. Use \"Roteamento Personalizado Especialista\" para substituir.",
             "subtitle_simple": "Personalizar roteamento de modelos com curingas ou mapeamentos exatos",
-            "background_task_title": "Background Task Model",
-            "background_task_desc": "Model used for Claude CLI background tasks like title generation, summary, etc. (Default: gemini-2.5-flash)",
-            "use_default": "Use System Default",
-            "current_model": "Current Model",
+            "background_task_title": "Modelo de Tarefa em Segundo Plano",
+            "background_task_desc": "Modelo usado para tarefas em segundo plano do Claude CLI, como geração de título, resumo, etc. (Padrão: gemini-2.5-flash)",
+            "use_default": "Usar Padrão do Sistema",
+            "current_model": "Modelo Atual",
             "apply_presets": "Aplicar Predefinições",
             "presets_applied": "Predefinições aplicadas com sucesso",
             "custom_mappings": "Mapeamentos Personalizados",
             "group_title": "Grupos de Séries",
-            "gemini3_group_label": "Gemini 3 (Recomendado)",
-            "gemini3_option_high": "gemini-3-pro-high (Alta Qualidade)",
-            "gemini3_option_low": "gemini-3-pro-low (Equilibrado)",
-            "gemini3_option_flash": "gemini-3-flash (Rápido)",
             "groups": {
                 "claude_45": {
-                    "name": "Série Claude 4.5",
-                    "desc": "Opus 4.5, Sonnet 4.5"
+                    "name": "Série Claude 4.6 TK",
+                    "desc": "Opus 4.5 TK"
                 },
                 "claude_35": {
                     "name": "Série Claude 3.5",
@@ -715,6 +857,8 @@
             },
             "expert_title": "Roteamento Personalizado Especialista",
             "expert_subtitle": "Correspondência precisa para qualquer ID de modelo original.",
+            "custom_mapping_tip": "💡 Permite inserir manualmente qualquer ID de modelo para experimentar modelos não lançados (ex: claude-opus-4-6).",
+            "custom_mapping_warning": "Nota: Nem todas as contas suportam modelos não lançados.",
             "money_saving_tip": "💰 Dica de economia:",
             "haiku_optimization_tip": "Claude CLI usa {{model}} para tarefas em segundo plano por padrão. Mapeie para um modelo Flash mais barato para economizar ~95% dos custos",
             "haiku_optimization_btn": "Otimizar Rapidamente",
@@ -844,9 +988,16 @@
         }
     },
     "update_notification": {
-        "title": "Nova Versão Disponível",
+        "title": "Nova versão disponível",
         "message": "Uma nova versão está pronta com otimizações e melhorias. Atual: v{{current}}",
-        "action": "Atualizar Agora"
+        "ready": "Atualização pronta",
+        "downloading": "Baixando atualização...",
+        "restarting": "Reiniciando o aplicativo...",
+        "auto_update": "Atualização automática",
+        "toast": {
+            "not_ready": "O pacote de atualização automática não está pronto, redirecionando para a página de download...",
+            "failed": "A atualização automática falhou, redirecionando para a página de download..."
+        }
     },
     "login": {
         "title": "Controle de Acesso Seguro",
@@ -892,5 +1043,133 @@
         "total": "Total",
         "percentage": "Porcentagem",
         "no_data": "Sem dados"
+    },
+    "security": {
+        "title": "Monitor de Segurança",
+        "refresh_data": "Atualizar Dados",
+        "refresh": "Atualizar",
+        "tab_logs": "Logs de Acesso",
+        "tab_stats": "Estatísticas",
+        "tab_blacklist": "Lista Negra",
+        "tab_whitelist": "Lista Branca",
+        "tab_config": "Configurações",
+        "stats": {
+            "total_requests": "Total de Requisições",
+            "total_requests_desc": "Todas as requisições registradas",
+            "unique_ips": "IPs Únicos",
+            "unique_ips_desc": "Endereços IP distintos",
+            "blocked_requests": "Requisições Bloqueadas",
+            "blocked_requests_desc": "Requisições rejeitadas por regras",
+            "ip_activity_token_usage": "Atividade de IP e Uso de Tokens",
+            "hour": "Hr",
+            "day": "Dia",
+            "week": "Sem",
+            "month": "Mês",
+            "rank": "Rank",
+            "ip_address": "Endereço IP",
+            "activity_reqs": "Atividade (Reqs)",
+            "total_token": "Total de Tokens",
+            "prompt": "Prompt",
+            "completion": "Conclusão",
+            "no_data": "Sem dados"
+        },
+        "logs": {
+            "search_placeholder": "Buscar IP, Caminho, User Agent...",
+            "show_blocked_only": "Exibir Apenas Bloqueados",
+            "status": "Status",
+            "ip_address": "Endereço IP",
+            "method": "Método",
+            "path": "Caminho",
+            "duration": "Duração",
+            "time": "Tempo",
+            "reason": "Motivo",
+            "blocked": "Bloqueado",
+            "no_logs": "Sem logs",
+            "total_records": "Total de {{total}} registros",
+            "prev_page": "Anterior",
+            "next_page": "Próximo",
+            "page_num": "Página {{page}}",
+            "per_page_suffix": "/pág"
+        },
+        "blacklist": {
+            "add_ip": "Adicionar IP",
+            "search_placeholder": "Buscar...",
+            "added_at": "Adicionado em",
+            "expires_at": "Expira em",
+            "no_data": "Sem dados na lista negra",
+            "add_title": "Adicionar à Lista Negra",
+            "ip_cidr_label": "Endereço IP ou CIDR",
+            "ip_cidr_placeholder": "ex: 192.168.1.1 ou 10.0.0.0/24",
+            "reason_label": "Motivo (Opcional)",
+            "reason_placeholder": "ex: Varredura maliciosa",
+            "expires_label": "Expira em (Horas, Opcional)",
+            "expires_placeholder": "Deixe vazio para permanente",
+            "cancel": "Cancelar",
+            "confirm": "Adicionar",
+            "add_btn": "Adicionar"
+        },
+        "whitelist": {
+            "add_ip": "Adicionar IP Confiável",
+            "no_data": "Sem dados na lista branca",
+            "add_title": "Adicionar à Lista Branca",
+            "description_label": "Descrição (Opcional)",
+            "description_placeholder": "ex: Servidor Interno",
+            "cancel": "Cancelar",
+            "confirm": "Adicionar",
+            "add_btn": "Adicionar"
+        },
+        "config": {
+            "title": "Configurações de Segurança",
+            "save": "Salvar Alterações",
+            "saving": "Salvando...",
+            "blacklist_title": "Lista Negra de IP",
+            "blacklist_desc": "Gerenciar endereços IP e regras bloqueadas.",
+            "enable_blacklist": "Habilitar Proteção de Lista Negra",
+            "block_msg_label": "Mensagem de Bloqueio Personalizada",
+            "block_msg_desc": "Conteúdo retornado para clientes bloqueados.",
+            "whitelist_title": "Lista Branca de IP",
+            "whitelist_desc": "Gerenciar endereços IP confiáveis.",
+            "enable_whitelist": "Habilitar Modo Lista Branca",
+            "whitelist_warning": "Aviso: Habilitar o modo lista branca bloqueará TODAS as requisições de IPs que não estejam na lista branca. Se estiver acessando via proxy, tenha cuidado para não se bloquear.",
+            "whitelist_priority": "Prioridade da Lista Branca (Substitui Lista Negra)",
+            "whitelist_priority_desc": "Se habilitado, IPs na lista branca serão permitidos mesmo que correspondam a regras da lista negra.",
+            "load_error": "Falha ao carregar configurações",
+            "save_success": "Configuração salva",
+            "save_error": "Falha ao salvar configuração"
+        }
+    },
+    "user_token": {
+        "title": "Gestão de Tokens de Usuário",
+        "total_users": "Total de Usuários",
+        "active_tokens": "Tokens Ativos",
+        "total_created": "Total Criados",
+        "create": "Criar Token",
+        "username": "Nome de usuário",
+        "token": "Token",
+        "expires": "Expira em",
+        "usage": "Uso",
+        "ip_limit": "Limite de IP",
+        "created": "Criado em",
+        "today_requests": "Solicitações de Hoje",
+        "never": "Nunca",
+        "renew": "Renovar",
+        "renew_button": "Renovar",
+        "unlimited": "Ilimitado",
+        "create_title": "Criar Novo Token",
+        "description": "Descrição",
+        "curfew": "Toque de recolher (Horário indisponível)",
+        "edit_title": "Editar Token",
+        "username_required": "Nome de usuário obrigatório",
+        "renew_success": "Renovado com sucesso",
+        "expires_day": "1 Dia",
+        "expires_week": "1 Semana",
+        "expires_month": "1 Mês",
+        "expires_never": "Nunca",
+        "no_data": "Nenhum token encontrado",
+        "placeholder_username": "ex: user1",
+        "placeholder_desc": "Notas opcionais",
+        "placeholder_max_ips": "0 = Ilimitado",
+        "hint_max_ips": "0 significa ilimitado",
+        "hint_curfew": "Deixe em branco para desativar. Baseado na hora do servidor."
     }
 }

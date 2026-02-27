@@ -75,7 +75,12 @@ pub fn get_auth_url(redirect_uri: &str, state: &str) -> String {
 
 /// Exchange authorization code for token
 pub async fn exchange_code(code: &str, redirect_uri: &str) -> Result<TokenResponse, String> {
-    let client = crate::utils::http::get_long_client(); // [FIX #948/887] Extend timeout to 60s for OAuth
+    // [PHASE 2] 对于登录行为，尚未有 account_id，使用全局池阶梯逻辑
+    let client = if let Some(pool) = crate::proxy::proxy_pool::get_global_proxy_pool() {
+        pool.get_effective_standard_client(None, 60).await
+    } else {
+        crate::utils::http::get_long_standard_client()
+    };
     
     let params = [
         ("client_id", CLIENT_ID),
@@ -85,8 +90,14 @@ pub async fn exchange_code(code: &str, redirect_uri: &str) -> Result<TokenRespon
         ("grant_type", "authorization_code"),
     ];
 
+    tracing::debug!(
+        "[OAuth] Sending exchange_code request with User-Agent: {}",
+        crate::constants::NATIVE_OAUTH_USER_AGENT.as_str()
+    );
+
     let response = client
         .post(TOKEN_URL)
+        .header(rquest::header::USER_AGENT, crate::constants::NATIVE_OAUTH_USER_AGENT.as_str())
         .form(&params)
         .send()
         .await
@@ -128,8 +139,13 @@ pub async fn exchange_code(code: &str, redirect_uri: &str) -> Result<TokenRespon
 }
 
 /// Refresh access_token using refresh_token
-pub async fn refresh_access_token(refresh_token: &str) -> Result<TokenResponse, String> {
-    let client = crate::utils::http::get_long_client(); // [FIX #948/887] Extend timeout to 60s
+pub async fn refresh_access_token(refresh_token: &str, account_id: Option<&str>) -> Result<TokenResponse, String> {
+    // [PHASE 2] 根据 account_id 使用对应的代理
+    let client = if let Some(pool) = crate::proxy::proxy_pool::get_global_proxy_pool() {
+        pool.get_effective_standard_client(account_id, 60).await
+    } else {
+        crate::utils::http::get_long_standard_client()
+    };
     
     let params = [
         ("client_id", CLIENT_ID),
@@ -138,10 +154,21 @@ pub async fn refresh_access_token(refresh_token: &str) -> Result<TokenResponse, 
         ("grant_type", "refresh_token"),
     ];
 
-    crate::modules::logger::log_info("Refreshing Token...");
+    // [FIX #1583] 提供更详细的日志，帮助诊断 Docker 环境下的代理问题
+    if let Some(id) = account_id {
+        crate::modules::logger::log_info(&format!("Refreshing Token for account: {}...", id));
+    } else {
+        crate::modules::logger::log_info("Refreshing Token for generic request (no account_id)...");
+    }
     
+    tracing::debug!(
+        "[OAuth] Sending refresh_access_token request with User-Agent: {}",
+        crate::constants::NATIVE_OAUTH_USER_AGENT.as_str()
+    );
+
     let response = client
         .post(TOKEN_URL)
+        .header(rquest::header::USER_AGENT, crate::constants::NATIVE_OAUTH_USER_AGENT.as_str())
         .form(&params)
         .send()
         .await
@@ -168,8 +195,12 @@ pub async fn refresh_access_token(refresh_token: &str) -> Result<TokenResponse, 
 }
 
 /// Get user info
-pub async fn get_user_info(access_token: &str) -> Result<UserInfo, String> {
-    let client = crate::utils::http::get_client();
+pub async fn get_user_info(access_token: &str, account_id: Option<&str>) -> Result<UserInfo, String> {
+    let client = if let Some(pool) = crate::proxy::proxy_pool::get_global_proxy_pool() {
+        pool.get_effective_client(account_id, 15).await
+    } else {
+        crate::utils::http::get_client()
+    };
     
     let response = client
         .get(USERINFO_URL)
@@ -192,6 +223,7 @@ pub async fn get_user_info(access_token: &str) -> Result<UserInfo, String> {
 /// Returns the latest access_token
 pub async fn ensure_fresh_token(
     current_token: &crate::models::TokenData,
+    account_id: Option<&str>,
 ) -> Result<crate::models::TokenData, String> {
     let now = chrono::Local::now().timestamp();
     
@@ -201,8 +233,8 @@ pub async fn ensure_fresh_token(
     }
     
     // Need to refresh
-    crate::modules::logger::log_info("Token expiring soon, refreshing...");
-    let response = refresh_access_token(&current_token.refresh_token).await?;
+    crate::modules::logger::log_info(&format!("Token expiring soon for account {:?}, refreshing...", account_id));
+    let response = refresh_access_token(&current_token.refresh_token, account_id).await?;
     
     // Construct new TokenData
     Ok(crate::models::TokenData::new(
