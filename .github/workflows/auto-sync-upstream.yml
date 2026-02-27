@@ -41,7 +41,6 @@ jobs:
           echo "current_commit=$CURRENT_COMMIT" >> $GITHUB_OUTPUT
 
           if [ "$UPSTREAM_COMMIT" != "$CURRENT_COMMIT" ]; then
-            # 检查是否有冲突（排除我们自定义的文件）
             BEHIND_COUNT=$(git rev-list --count HEAD..upstream/main)
             echo "has_updates=true" >> $GITHUB_OUTPUT
             echo "behind_count=$BEHIND_COUNT" >> $GITHUB_OUTPUT
@@ -54,17 +53,22 @@ jobs:
       - name: Backup custom files
         if: steps.check.outputs.has_updates == 'true'
         run: |
-          # 备份自定义文件到临时目录
           mkdir -p /tmp/custom-backup
 
-          # 备份 daily-build.yml（我们的自定义编译配置）
+          # 备份 daily-build.yml
           if [ -f ".github/workflows/daily-build.yml" ]; then
             cp .github/workflows/daily-build.yml /tmp/custom-backup/
             echo "✅ 已备份 daily-build.yml"
           fi
 
-          # 如果有其他自定义文件，在这里添加备份
-          # cp other-custom-file /tmp/custom-backup/
+          # 备份 tauri.conf.json 中的自定义 pubkey
+          if [ -f "src-tauri/tauri.conf.json" ]; then
+            PUBKEY=$(jq -r '.plugins.updater.pubkey // empty' src-tauri/tauri.conf.json)
+            if [ -n "$PUBKEY" ]; then
+              echo "$PUBKEY" > /tmp/custom-backup/tauri-pubkey.txt
+              echo "✅ 已备份 tauri pubkey"
+            fi
+          fi
 
       - name: Sync with upstream
         if: steps.check.outputs.has_updates == 'true'
@@ -95,30 +99,33 @@ jobs:
       - name: Restore custom files
         if: steps.check.outputs.has_updates == 'true'
         run: |
-          # 恢复自定义文件
+          # 恢复 daily-build.yml
           if [ -f "/tmp/custom-backup/daily-build.yml" ]; then
             mkdir -p .github/workflows
             cp /tmp/custom-backup/daily-build.yml .github/workflows/
             echo "✅ 已恢复 daily-build.yml"
-
-            # 如果文件有变化，提交它
             if ! git diff --quiet .github/workflows/daily-build.yml; then
               git add .github/workflows/daily-build.yml
               git commit -m "chore: restore custom daily-build workflow for Windows ARM64 support" || true
             fi
           fi
 
-          # 恢复其他自定义文件
-          # if [ -f "/tmp/custom-backup/other-file" ]; then
-          #   cp /tmp/custom-backup/other-file path/to/restore/
-          #   git add path/to/restore/other-file
-          #   git commit -m "chore: restore custom configuration" || true
-          # fi
+          # 恢复 tauri.conf.json 中的自定义 pubkey
+          if [ -f "/tmp/custom-backup/tauri-pubkey.txt" ] && [ -f "src-tauri/tauri.conf.json" ]; then
+            SAVED_PUBKEY=$(cat /tmp/custom-backup/tauri-pubkey.txt)
+            jq --arg pubkey "$SAVED_PUBKEY" '.plugins.updater.pubkey = $pubkey' \
+              src-tauri/tauri.conf.json > /tmp/tauri.conf.json.tmp
+            mv /tmp/tauri.conf.json.tmp src-tauri/tauri.conf.json
+            echo "✅ 已恢复 tauri pubkey"
+            if ! git diff --quiet src-tauri/tauri.conf.json; then
+              git add src-tauri/tauri.conf.json
+              git commit -m "chore: restore custom tauri signing pubkey" || true
+            fi
+          fi
 
       - name: Push changes
         if: steps.check.outputs.has_updates == 'true'
         run: |
-          # 强制推送到 origin（因为可能使用了 reset 或 rebase）
           if [ "${{ env.sync_method }}" = "reset" ] || [ "${{ env.sync_method }}" = "rebase" ]; then
             git push origin main --force
             echo "✅ 已强制推送更新到 origin/main"
@@ -139,7 +146,7 @@ jobs:
             echo "- **同步方法**: ${{ env.sync_method }}" >> $GITHUB_STEP_SUMMARY
             echo "- **上游提交**: \`${{ steps.check.outputs.upstream_commit }}\`" >> $GITHUB_STEP_SUMMARY
             echo "- **落后提交数**: ${{ steps.check.outputs.behind_count }}" >> $GITHUB_STEP_SUMMARY
-            echo "- **自定义文件**: daily-build.yml (已保留)" >> $GITHUB_STEP_SUMMARY
+            echo "- **自定义文件**: daily-build.yml, tauri pubkey (已保留)" >> $GITHUB_STEP_SUMMARY
           else
             echo "### ℹ️ 无需同步" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
